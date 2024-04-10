@@ -59,10 +59,10 @@ class N2N_Unet_DAS(nn.Module):
     #        torch.nn.init.kaiming_normal_(layer.weight)
     #        torch.nn.init.constant_(layer.bias, 0)
 
-
-class N2N_Unet_Claba(nn.Module):
+#for use on CelebA - Original Paper of N2N - Quelle 1
+class N2N_Orig_Unet(nn.Module):
     def __init__(self):
-        super(N2N_Unet_Claba, self).__init__()
+        super(N2N_Orig_Unet, self).__init__()
 
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=24, kernel_size=3, padding='same')
 
@@ -93,6 +93,103 @@ class N2N_Unet_Claba(nn.Module):
         return output
     
 
+
+#original U-Net aritecckture - Quelle 30
+class U_Net_origi(nn.Module):
+    def __init__(self, mask=None):
+        super(U_Net_origi, self).__init__()
+
+        self.encoder1 = nn.Sequential(          #572x572
+            nn.Conv2d(3, 64, kernel_size=3),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3),
+            nn.ReLU(),                          #568x568
+        )
+        self.encoder2 = nn.Sequential(
+            nn.MaxPool2d(kernel_size=2, stride=2),  #284x284
+            nn.Conv2d(64, 128, kernel_size=3),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, kernel_size=3),
+            nn.ReLU(),                              #280x280
+        )
+        self.encoder3 = nn.Sequential(
+            nn.MaxPool2d(kernel_size=2, stride=2),  #140x140
+            nn.Conv2d(128, 256, kernel_size=3),
+            nn.ReLU(),
+            nn.Conv2d(256, 256, kernel_size=3),
+            nn.ReLU(),                              #136x136
+        )
+        self.encoder4 = nn.Sequential(
+            nn.MaxPool2d(kernel_size=2, stride=2),  #68x68
+            nn.Conv2d(256, 512, kernel_size=3),
+            nn.ReLU(),
+            nn.Conv2d(512, 512, kernel_size=3),
+            nn.ReLU(),                              #64x64
+        )
+        self.encoder5 = nn.Sequential(
+            nn.MaxPool2d(kernel_size=2, stride=2),  #32x32
+            nn.Conv2d(512, 1024, kernel_size=3),
+            nn.ReLU(),
+            nn.Conv2d(1024, 1024, kernel_size=3),
+            nn.ReLU(),                              #28x28
+        )
+
+        self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
+
+        self.decoder1 = nn.Sequential(
+            nn.Conv2d(1024, 512, kernel_size=2),
+            nn.ReLU(),
+            nn.Conv2d(512, 512, kernel_size=3),
+            nn.ReLU(), 
+            nn.Upsample(scale_factor=2, mode='nearest'),
+        )
+        self.decoder2 = nn.Sequential(
+            nn.Conv2d(512, 256, kernel_size=2),
+            nn.ReLU(),
+            nn.Conv2d(256, 256, kernel_size=3),
+            nn.ReLU(), 
+            nn.Upsample(scale_factor=2, mode='nearest'),
+        )
+        self.decoder3 = nn.Sequential(
+            nn.Conv2d(256, 128, kernel_size=2),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, kernel_size=3),
+            nn.ReLU(), 
+            nn.Upsample(scale_factor=2, mode='nearest'),
+        )
+        self.decoder4 = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3),
+            nn.ReLU(), 
+            nn.Conv2d(64, 3, kernel_size=1),
+            nn.ReLU(), 
+        )
+
+    def forward(self, x):
+        if not x.shape[2] == 572:
+            print("WARNING: Shaps not testet for diffrent resolutions then 572x572")
+        skip1 = self.encoder1(x)
+        skip2 = self.encoder2(skip1)
+        skip3 = self.encoder3(skip2)
+        skip4 = self.encoder4(skip3)
+        result = self.encoder5(skip4)
+        result = self.upsample(result)
+
+        result = torch.cat((skip4, result), 0) #TODO: check ob fesatures in dim 0 sind
+        result = self.decoder1(result)
+        result = torch.cat((skip3, result), 0)
+        result = self.decoder2(result)
+        result = torch.cat((skip2, result), 0)
+        result = self.decoder3(result)
+        result = torch.cat((skip1, result), 0)
+        result = self.decoder4(result)
+        return result
+
+
+
+
+#for use on CelebA - Paper Cut2Self - Quelle 4
 class Cut2Self(nn.Module):
     def __init__(self, mask=None):
         super(Cut2Self, self).__init__()
