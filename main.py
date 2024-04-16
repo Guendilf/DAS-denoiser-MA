@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from tqdm import tqdm
 
-from N2N_Unet import N2N_Unet_DAS, N2N_Unet_Claba, Cut2Self
+from N2N_Unet import N2N_Unet_DAS, N2N_Orig_Unet, Cut2Self
 
 import numpy as np
 import torch
@@ -95,7 +95,7 @@ def add_gaus_noise(image, mean, sigma):
     return noisy_image
 
 
-def cut2self_masl(image_size, batch_size, mask_size=(4, 4), mask_percentage=0.003):
+def cut2self_mask(image_size, batch_size, mask_size=(4, 4), mask_percentage=0.003):
     total_area = image_size[0] * image_size[1]
     
     # Berechnen Fläche jedes Quadrats in der Maske
@@ -152,7 +152,7 @@ TRAIN FUNKTIONS
 
 
 
-def train(model, optimizer, device, dataLoader, dataset):
+def train(model, optimizer, device, dataLoader, dataset, methode):
     #mit lossfunktion aus "N2N(noiseToNoise)"
     #kabel ist gesplitet und ein Teil (src) wird im Model behandelt und der andere (target) soll verglichen werden
     #writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
@@ -162,10 +162,12 @@ def train(model, optimizer, device, dataLoader, dataset):
     for batch_idx, (src, target) in enumerate(tqdm(dataLoader)): #src.shape=[batchsize, rgb, w, h]
         if batch_idx == max_Iteration:
             break
-        src1 = add_gaus_noise(src, 0.5, 0.1**0.5).to(device)
-        src1 = src + torch.randn_like(src) * sigma + mean
-        target = src + torch.randn_like(src) * sigma + mean
-        target = add_gaus_noise(src, 0.6, 0.4**0.5).to(device)
+        if methode == "N2N_orig":
+            src1 = add_gaus_noise(src, 0.5, 0.1**0.5).to(device)
+            #schöner 1 Zeiler:
+            #src1 = src + torch.randn_like(src) * 0.1**0.5 + 0.5
+            #target = src + torch.randn_like(src) * sigma + 0.5
+            target = add_gaus_noise(src, 0.5, 0.1**0.5).to(device)
        
         # Denoise image
         denoised = model(src1)
@@ -181,8 +183,8 @@ def train(model, optimizer, device, dataLoader, dataset):
         optimizer.step()
         psnr_batch = calculate_psnr(target, denoised)
         psnr_log.append(psnr_batch.item())
-        if batch_idx % 100 == 0:
-            show_pictures_from_dataset(src, model, batch_idx)
+        #if batch_idx % 100 == 0:
+            #show_pictures_from_dataset(src, model, batch_idx)
     #writer.close()
     plt.show()
     return loss_log, psnr_log
@@ -191,21 +193,22 @@ def train(model, optimizer, device, dataLoader, dataset):
 
 def main(argv):
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    methode="N2N_orig"
 
     celeba_dir = 'dataset/celeba_dataset'
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=True, transform=transform)
     dataLoader = DataLoader(dataset, batch_size=64, shuffle=True)
 
-    mask = cut2self_masl((128,128), 64).to(device)
+    mask = cut2self_mask((128,128), 64).to(device)
 
-    #model = N2N_Unet_Claba().to(device)
+    #model = N2N_Orig_Unet(3,3).to(device)
     model = Cut2Self(mask).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
 
     
     print(f"Using {device} device")
 
-    loss, psnr_log = train(model, optimizer, device, dataLoader, dataset)
+    loss, psnr_log = train(model, optimizer, device, dataLoader, dataset, methode)
     plt.plot(loss, color='blue')
     plt.plot(psnr_log, color='red')
     plt.show()

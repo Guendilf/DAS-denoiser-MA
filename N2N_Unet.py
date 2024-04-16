@@ -19,7 +19,7 @@ from torch import nn
 from torch_pconv import PConv2d
 
 
-
+#for use on CelebA - Paper of N2N - Quelle 2        richtig implementiert
 class N2N_Unet_DAS(nn.Module):
     def __init__(self):
         super(N2N_Unet_DAS, self).__init__()
@@ -59,37 +59,107 @@ class N2N_Unet_DAS(nn.Module):
     #        torch.nn.init.kaiming_normal_(layer.weight)
     #        torch.nn.init.constant_(layer.bias, 0)
 
+
 #for use on CelebA - Original Paper of N2N - Quelle 1
 class N2N_Orig_Unet(nn.Module):
-    def __init__(self):
+    def __init__(self, input_chanels, output_chanels):
         super(N2N_Orig_Unet, self).__init__()
 
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=24, kernel_size=3, padding='same')
+        self.input_chanels = input_chanels
+        self.output_chanels = output_chanels
 
         self.net1 = nn.Sequential(
+            nn.Conv2d(in_channels=self.input_chanels, out_channels=48, kernel_size=3, padding='same'),
             nn.LeakyReLU(0.1),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(in_channels=24, out_channels=24, kernel_size=3, padding='same'),
-            nn.Upsample(scale_factor=2, mode='nearest'),           
+            nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.MaxPool2d(kernel_size=2, stride=2),         
         )
 
         self.net2 = nn.Sequential(
             nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
             nn.LeakyReLU(0.1),
+            nn.MaxPool2d(kernel_size=2, stride=2),  
+        )
+        self.net3 = nn.Sequential(
             nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
             nn.LeakyReLU(0.1),
-            nn.Conv2d(in_channels=48, out_channels=3, kernel_size=1, padding='same')
-            #linear activation
+            nn.MaxPool2d(kernel_size=2, stride=2),  
+        )
+        self.net4 = nn.Sequential(
+            nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.MaxPool2d(kernel_size=2, stride=2),  
+        )
+        self.net5 = nn.Sequential(
+            nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Upsample(scale_factor=2, mode='nearest'),  
+        )
+
+
+
+        self.net6 = nn.Sequential(
+            nn.Conv2d(in_channels=96, out_channels=96, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(in_channels=96, out_channels=96, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Upsample(scale_factor=2, mode='nearest'),  
+        )
+        self.net7 = nn.Sequential(
+            nn.Conv2d(in_channels=144, out_channels=96, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(in_channels=96, out_channels=96, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Upsample(scale_factor=2, mode='nearest'),  
+        )
+        self.net8 = nn.Sequential(
+            nn.Conv2d(in_channels=144, out_channels=96, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(in_channels=96, out_channels=96, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Upsample(scale_factor=2, mode='nearest'),  
+        )
+        self.net9 = nn.Sequential(
+            nn.Conv2d(in_channels=144, out_channels=96, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(in_channels=96, out_channels=96, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Upsample(scale_factor=2, mode='nearest'),  
+        )
+        self.net10 = nn.Sequential(
+            nn.Conv2d(in_channels=96+self.input_chanels, out_channels=64, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(in_channels=32, out_channels=self.output_chanels, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
         )
 
         #self.apply(layer_init)
 
     
     def forward(self, x):
-        conv1 = self.conv1(x)
-        output = self.net1(conv1)
-        output = torch.cat((output, conv1), dim=1)
-        output = self.net2(output)
+        pool1 = self.net1(x)
+        pool2 = self.net2(pool1)
+        pool3 = self.net3(pool2)
+        pool4 = self.net4(pool3)
+        pool5 = self.net5(pool4)
+
+        output = torch.cat((pool5, pool4), dim=1) #TODO: richtige Dim?
+        output = self.net6(output)
+        output = torch.cat((output, pool3), dim=1)
+        output = self.net7(output)
+        output = torch.cat((output, pool2), dim=1)
+        output = self.net8(output)
+        output = torch.cat((output, pool1), dim=1)
+        output = self.net9(output)
+        output = torch.cat((output, x), dim=1)
+        output = self.net10(output)
+
         return output
     
 
