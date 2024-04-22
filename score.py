@@ -39,7 +39,7 @@ def calculate_psnr(original, reconstructed):
 def loss_SURE (output, target, model, sigma):
     mse = torch.nn.MSELoss()(output, target)
 
-    #Monte-Carlo-Simulation
+    #TODO: Monte-Carlo-Simulation
     divergences = []
     for _ in range(output.shape[0]):
         # random noise pictures
@@ -48,11 +48,11 @@ def loss_SURE (output, target, model, sigma):
         # Berechnen Sie den Gradienten von f_lambda(y) bezüglich y
         #new_noise.requires_grad = True
         output = model(output + new_noise)
-        #gradient = torch.autograd.grad(outputs=output, inputs=new_noise, grad_outputs=torch.ones_like(output))
+        gradient = torch.autograd.grad(outputs=output, inputs=new_noise, grad_outputs=torch.ones_like(output))
 
-        # Berechnen Sie die Divergenz von f_lambda(y)
-        #divergence = torch.sum(gradient[0])
-        divergence = torch.sum(new_noise.grad)
+        # rechne Divergenz von f_lambda(y)
+        divergence = torch.sum(gradient[0])
+        #divergence = torch.sum(new_noise.grad)
         divergences.append(divergence.item())
     divergence = torch.mean(torch.tensor(divergences))
     
@@ -79,26 +79,30 @@ def noise_mode (mode, y, loss, sigma=0, zeta=0, alpha=0, beta=0):
 
 
 
-def train(model, optimizer, device, dataLoader, dataset, sigma=0.6):
+def train(model, optimizer, device, dataLoader, dataset, sigma):
 
     loss_log = []
     psnr_log = []
-    for batch_idx, (src, target) in enumerate(tqdm(dataLoader)): #src.shape=[batchsize, rgb, w, h]
+    for batch_idx, (original, label) in enumerate(tqdm(dataLoader)): #src.shape=[batchsize, rgb, w, h]
         if batch_idx == max_Iteration:
             break
-
-        src1 = (src + torch.randn_like(src) * 0.1**0.5 + 0.5).to(device)
-        target = (src + torch.randn_like(src) * sigma + 0.5).to(device)
+        
+        u = torch.randn_like(original).to(device)
+        sigma_a = (torch.randn_like(original) * sigma).to(device)
+        picture = (original + sigma_a*u).to(device)
+        #target = (original + torch.randn_like(original) * sigma + 0.5).to(device)
 
         #calculate loss
-        loss, src1 = loss_SURE(src1, target, model, sigma)
+        #loss, src1 = loss_SURE(src1, target, model, sigma)
+        denoised = model(picture)
+        loss = ((original - denoised)**2).sum().sqrt()
+        loss = loss / original.numel()
         loss_log.append(loss.item())
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        denoised = tweedie(src1)
-        psnr_batch = calculate_psnr(target, denoised)
+        psnr_batch = calculate_psnr(original, denoised)
         psnr_log.append(psnr_batch.item())
 
     return loss_log, psnr_log
