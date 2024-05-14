@@ -25,17 +25,17 @@ class Mask:
 
 
 
-    def n2self_mask(noise_image, i, grid_size=3):
+    def n2self_mask(noise_image, i, grid_size=3, mode='interpolate'):
         phasex = i % grid_size
         phasey = (i // grid_size) % grid_size
         mask = n2self_pixel_grid_mask(noise_image[0, 0].shape, grid_size, phasex, phasey)
         mask = mask.to(noise_image.device)
         #mask_inv = torch.ones_like(mask) - mask
         mask_inv = 1 - mask
-        if True: #mode == 'interpolate':
+        if mode == 'interpolate':
             masked = n2self_interpolate_mask(noise_image, mask, mask_inv)
-        #elif self.mode == 'zero':
-            #masked = X * mask_inv
+        elif mode == 'zero':
+            masked = noise_image * mask_inv
         #else:
             #raise NotImplementedError
         #if self.include_mask_as_input:

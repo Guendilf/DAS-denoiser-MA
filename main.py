@@ -71,18 +71,17 @@ def loss_orig_n2n(noise_images, sigma, device, model):
     return loss_function(denoised, noise_image2), denoised, noise_image2
 
 
-def loss_n2score(noise_images, sigma, device, model, methode):
+def loss_n2score(noise_images, sigma_min, sigma_max, q, device, model, methode): #q=batchindex/dataset
     u = torch.randn_like(noise_images).to(device)
-    sigma_a = noise_images
+    sigma_a = sigma_max*(1-q) + sigma_min*q
     noise = sigma_a*u
-    noise_image = (original + noise).to(device)
     #loss, src1 = loss_SURE(src1, target, model, sigma)
-    denoised = model(noise_image)
+    denoised = model(noise_images+noise)
     if methode == "score_ar":
         loss = ((u + sigma_a*denoised)**2).sum().sqrt()
     else:
-        loss = ((original - denoised)**2).sum().sqrt()
-    return loss/original.numel(), denoised, noise_image
+        loss = ((noise_images - denoised)**2).sum().sqrt()
+    return loss/noise_images.numel(), denoised, noise_images
 
 
 def loss_n2self(noise_image, batch_idx, model):
@@ -142,7 +141,8 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
             loss, denoised, noise_image2 = loss_orig_n2n(noise_images, sigma, device, model)
             
         elif "score" in methode:
-            loss, denoised, noise_images = loss_n2score(noise_images, sigma, device, model, methode)
+            loss, denoised, noise_images = loss_n2score(noise_images, sigma_min=1, sigma_max=30, q=batch_idx/len(dataLoader), 
+                                                        device=device, model=model, methode=methode)
             #TODO: abhängig vom Noise, wird rekonstruiertes Endbild noch bearbeitet -> Suplemenrtary
 
         elif methode == "n2self":
@@ -202,9 +202,10 @@ def main(argv):
         transforms.RandomResizedCrop((128,128)),
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.float()),
+        transforms.Lambda(lambda x:  x * 2 -1), #[-1,1]
         transforms.Lambda(lambda x: x + torch.randn_like(x) * sigma),  #Rauschen
-        #transforms.Normalize(mean=mean_training, std=std_training) #Normaalisieren
-        transforms.Lambda(lambda x: (x-x.min())  / (x.max() - x.min())),
+        transforms.Normalize(mean=mean_training, std=std_training) #Normaalisieren
+        #transforms.Lambda(lambda x: (x-x.min())  / (x.max() - x.min())),
         ])
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=True, transform=transform_noise)
     dataLoader = DataLoader(dataset, batch_size=64, shuffle=True)
