@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import os
+import shutil
 
 import torch
 
@@ -111,6 +112,11 @@ def log_files():
     models_path.mkdir(parents=True, exist_ok=True)
     tensorboard_path = Path(os.path.join(store_path, "tensorboard"))
     tensorboard_path.mkdir(parents=True, exist_ok=True)
+    for file in os.listdir(current_path):
+        if file.endswith(".py"):
+            print("copy: ", file)
+            shutil.copyfile(os.path.join(current_path, file), os.path.join(store_path, file))
+    print(f"python files are stored. Path: {store_path}")
 
     return store_path
 

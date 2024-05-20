@@ -2,6 +2,7 @@ import torch
 import torchvision.datasets as datasets
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
+from tqdm import tqdm
 
 
 def generate_patches_from_list(data, num_patches_per_img=None, shape=(64, 64), augment=True, shuffle=False):
@@ -97,15 +98,16 @@ def __augment_patches__(patches):
 
 
 
-def calculate_mean_std_dataset(dataset, sigma, mean=None, std=None):
+def calculate_mean_std_dataset(dataset, sigma, device, mean=None, std=None):
     #wenn Trainingsdaten
     if mean==None:
         dataLoader = DataLoader(dataset, batch_size=64, shuffle=True)
-        mean = torch.zeros(3)#RGB
-        std = torch.zeros(3)
+        mean = torch.zeros(3).to(device)#RGB
+        std = torch.zeros(3).to(device)
         total_samples = 0
 
-        for batch_idx, (original, label) in enumerate(dataLoader):
+        for batch_idx, (original, label) in enumerate(tqdm(dataLoader)):
+            original = original.to(device)
             batch_size = original.size(0)
             total_samples += batch_size
             mean += original.mean(dim=(0, 2, 3))
@@ -113,6 +115,8 @@ def calculate_mean_std_dataset(dataset, sigma, mean=None, std=None):
 
         mean = mean / total_samples
         std = std / total_samples
+        print(mean)
+        print(std)
 
     transform_noise = transforms.Compose([
         transforms.ToTensor(),

@@ -31,15 +31,6 @@ max_Iteration = 10
 max_Epochs = 2
 
 
-transform = transforms.Compose([
-    #transforms.Resize((128, 128)), #TODO:crop und dann resize
-    transforms.RandomResizedCrop((128,128)),
-    transforms.ToTensor(),                  # PIL-Bild in Tensor
-    transforms.Lambda(lambda x: x.float()),  # in Float
-    #transforms.Lambda(lambda x: x / torch.max(x)) #skallieren auf [0,1]
-])
-
-
 
 """
 Pre-Processing FUNKTIONS
@@ -65,6 +56,14 @@ def loss_orig_n2n(noise_images, sigma, device, model):
     #schöner 1 Zeiler:
 
     noise_image2 = (noise_images + torch.randn_like(noise_images) * (sigma+0.3)).to(device) #+ mean
+    #norm noise2 images:
+    mean = torch.tensor([0.0842, -0.2211, -0.3848]).to(device)
+    std = torch.tensor([1.0012, 1.0035, 0.9994]).to(device)
+
+    mean = mean[None, :, None, None]
+    std = std[None, :, None, None]
+    noise_image2 = (noise_image2 - mean) / std
+
     # Denoise image
     denoised = model(noise_images)
     loss_function = torch.nn.MSELoss()
@@ -105,6 +104,16 @@ def loss_n2void(noise_images, model, num_patches_per_img, windowsize, num_masked
     loss_function = torch.nn.MSELoss() #TODO: richtigge Loss, funktion?
     return loss_function(denoised_pixel, target_pixel), denoised, patches
 
+def loss_n2same(noise_images, device, model, lambda_inv=2):
+    mask, maked_points = (Mask.cut2self_mask((noise_images.shape[2],noise_images.shape[3]), noise_images.shape[0], mask_size=(1, 1), mask_percentage=0.0005)).to(device) #0,5% Piel maskieren
+    masked_input = (1-mask) * noise_images
+    denoised = model(noise_images)
+    denoised_mask = model(masked_input)
+    mse = torch.nn.MSELoss()
+    loss_rec = mse(denoised, noise_images)
+    loss_inv = mse(denoised, denoised_mask)
+    return loss_rec/noise_images.shape[1] + lambda_inv * (loss_inv/maked_points).sqrt() #J = count of maked_points
+
 
 def n2n_loss_for_das(denoised, target):
     loss_function = torch.nn.MSELoss()
@@ -124,8 +133,9 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
     loss_log = []
     psnr_log = []
     sim_log = []
+    psnr_orig_log = []
     bestPsnr = bestPsnr
-    bestSim = 0
+    bestSim = -1
     if mode=="test" or mode =="validate":
         model.eval()
     else:
@@ -151,8 +161,9 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         elif methode == "n2void":
             loss, denoised, noise_images = loss_orig_n2n(noise_images, model, num_patches_per_img=None, windowsize=5, num_masked_pixels=8)
             
-
-       
+        psnr_original = Metric.calculate_psnr(noise_images, denoised)
+        denoised = (denoised-denoised.min())  / (denoised.max() - denoised.min())
+        noise_images = (noise_images-noise_images.min())  / (noise_images.max() - noise_images.min())
 
 
         
@@ -161,17 +172,18 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         
         psnr_batch = Metric.calculate_psnr(noise_images, denoised)
         similarity_batch, diff_picture = Metric.calculate_similarity(noise_images, denoised)
+        psnr_orig_log.append(psnr_original.item())
         psnr_log.append(psnr_batch.item())
         sim_log.append(similarity_batch)
         if mode=="train":
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            if psnr_batch.item() > bestPsnr:# or similarity_batch > bestSim:
+            if round(psnr_batch.item(),1) > bestPsnr:# or similarity_batch > bestSim:
                 bestSim = similarity_batch
-                bestPsnr = psnr_batch.item()
+                bestPsnr = round(psnr_batch.item(),1)
                 print(f"best model found with psnr: {bestPsnr}")
-                model_save_path = os.path.join(store, "models", f"{round(bestPsnr, 2)}NewBestRewardModel{epoch}-{batch_idx}.pth")
+                model_save_path = os.path.join(store, "models", f"{round(bestPsnr, 1)}NewBestRewardModel{epoch}-{batch_idx}.pth")
                 torch.save(model.state_dict(), model_save_path)
                 print(f"saved new best model at path {model_save_path}")
                 #denoised_norm = normalize_image(denoised)
@@ -179,8 +191,10 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                 writer.add_image('Denoised Images', grid, global_step=epoch * len(dataLoader) + batch_idx)
                 show_tensor_as_picture(denoised)
 
-
-    return loss_log, psnr_log, sim_log
+    print("epochs last psnr: ", psnr_log[-1])
+    print("epochs last sim: ", sim_log[-1])
+    
+    return loss_log, psnr_log, sim_log, bestPsnr, psnr_orig_log
 
         
 
@@ -193,10 +207,11 @@ def main(argv):
     sigma=0.4
 
     celeba_dir = 'dataset/celeba_dataset'
-    #dataset = datasets.CelebA(root=celeba_dir, split='train', download=True, transform=transform)
-    #mean, std = calculate_mean_std_dataset(dataset, sigma=0.4)
-    mean_training = torch.tensor([0.0047,0.0042,0.0041])
-    std_training =  torch.tensor([0.0083, 0.0066, 0.0058])
+
+
+    mean_training = torch.tensor([ 0.0010, -0.0023, -0.0040])
+    std_training =  torch.tensor([0.0112, 0.0104, 0.0103])
+    
 
     transform_noise = transforms.Compose([
         transforms.RandomResizedCrop((128,128)),
@@ -204,14 +219,14 @@ def main(argv):
         transforms.Lambda(lambda x: x.float()),
         transforms.Lambda(lambda x:  x * 2 -1), #[-1,1]
         transforms.Lambda(lambda x: x + torch.randn_like(x) * sigma),  #Rauschen
-        transforms.Normalize(mean=mean_training, std=std_training) #Normaalisieren
-        #transforms.Lambda(lambda x: (x-x.min())  / (x.max() - x.min())),
+        transforms.Normalize(mean=mean_training, std=std_training), #Normaalisieren
         ])
+    print("lade Datensätze")
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=True, transform=transform_noise)
     dataLoader = DataLoader(dataset, batch_size=64, shuffle=True)
 
     dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=True, transform=transform_noise)
-    dataLoader_validate = dataLoader = DataLoader(dataset_validate, batch_size=64, shuffle=True)
+    dataLoader_validate = DataLoader(dataset_validate, batch_size=64, shuffle=True)
 
     mask = Mask.cut2self_mask((128,128), 64).to(device)
 
@@ -222,23 +237,43 @@ def main(argv):
     
     print(f"Using {device} device")
     #run.watch(model)
-    bestPsnr = 0
-    for epoch in range(max_Epochs):
-        loss, psnr, similarity = train(model, optimizer, device, dataLoader, methode, sigma=sigma, mode="train", 
+    bestPsnr = -100
+    bestPsnr_val = -100
+    for epoch in tqdm(range(max_Epochs)):
+        loss, psnr, similarity, bestPsnr, psnr_orig = train(model, optimizer, device, dataLoader, methode, sigma=sigma, mode="train", 
                                        store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer)
 
         for i, loss_item in enumerate(loss):
             writer.add_scalar('Train Loss', loss_item, epoch * len(dataLoader) + i)
             writer.add_scalar('Train PSNR', psnr[i], epoch * len(dataLoader) + i)
+            writer.add_scalar('Train PSNR befor norm', psnr_orig[i], epoch * len(dataLoader) + i)
             writer.add_scalar('Train Similarity', similarity[i], epoch * len(dataLoader) + i)
-        bestPsnr = max(psnr)
+
+        high_psnr = max(psnr)
+        high_sim = max(similarity)
+        if round(max(psnr),1) > bestPsnr:
+            bestPsnr = round(max(psnr),1)
+        print("Epochs highest PSNR: ", high_psnr)
+        print("Epochs highest Sim: ", high_sim)
+        model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
+        torch.save(model.state_dict(), model_save_path)
         """
-        if epoch%10 == 0:
-            loss, psnr, similarity = train(model, optimizer, device, dataLoader_validate, methode, sigma=sigma, mode="validate")
-            for i, loss_item in enumerate(loss):
+        if epoch%10 == 0 or epoch == max_Epochs:
+            loss_val, psnr_val, similarity_val, bestPsnr_val, psnr_orig_val = train(model, optimizer, device, dataLoader_validate, methode, sigma=sigma, mode="validate",
+                                          store=store_path, epoch=epoch, bestPsnr=bestPsnr_val, writer = writer)
+            high_psnr = -100
+            high_sim = -100
+            for i, loss_item in enumerate(loss_val):
                 writer.add_scalar('Validation Loss', loss_item, epoch * len(dataLoader) + i)
-                writer.add_scalar('Validation PSNR', psnr[i], epoch * len(dataLoader) + i)
-                writer.add_scalar('Validation Similarity', similarity[i], epoch * len(dataLoader) + i)
+                writer.add_scalar('Validation PSNR', psnr_val[i], epoch * len(dataLoader) + i)
+                writer.add_scalar('Validation PSNR befor norm', psnr_orig_val[i], epoch * len(dataLoader) + i)
+                writer.add_scalar('Validation Similarity', similarity_val[i], epoch * len(dataLoader) + i)
+            high_psnr = max(psnr_val)
+            high_sim = max(similarity_val)
+            if max(psnr_val) > bestPsnr_val:
+                bestPsnr_val = max(psnr_val)
+            print("Epochs highest PSNR: ", high_psnr)
+            print("Epochs highest Sim: ", high_sim)
         """
 
         

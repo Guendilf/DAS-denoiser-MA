@@ -21,7 +21,7 @@ class Mask:
                 mask[x:x+mask_size[0], y:y+mask_size[1]] = 1
             masks.append(mask)
 
-        return torch.stack(masks, dim=0)
+        return torch.stack(masks, dim=0), num_regions
 
 
 
