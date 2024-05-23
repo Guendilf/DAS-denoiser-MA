@@ -9,7 +9,7 @@ from skimage.metrics import structural_similarity as sim
 from models.N2N_Unet import N2N_Unet_DAS, N2N_Orig_Unet, Cut2Self
 from metric import Metric
 from masks import Mask
-from utils import show_logs, show_pictures_from_dataset, log_files, show_tensor_as_picture,  normalize_image
+from utils import show_logs, show_pictures_from_dataset, log_files, show_tensor_as_picture,  normalize_image, add_norm_noise
 from transformations import *
 
 import numpy as np
@@ -51,19 +51,19 @@ LOSS FUNKTIONS  +  EVALUATION FUNKTIONS
 
 
 #original Loss funktion from N2N paper
-def loss_orig_n2n(noise_images, sigma, device, model):
+def loss_orig_n2n(original, noise_images, sigma, device, model, min_value, max_value, a=-1, b=1):
     #src1 = add_gaus_noise(original, 0.5, sigma).to(device)
     #schöner 1 Zeiler:
-
-    noise_image2 = (noise_images + torch.randn_like(noise_images) * (sigma+0.3)).to(device) #+ mean
+    noise_image2 = add_norm_noise(original, sigma+0.3, min_value, max_value, a=-1, b=1)
+    noise_image2 = noise_image2.to(device) #+ mean
+    """
     #norm noise2 images:
     mean = torch.tensor([0.0842, -0.2211, -0.3848]).to(device)
     std = torch.tensor([1.0012, 1.0035, 0.9994]).to(device)
-
     mean = mean[None, :, None, None]
     std = std[None, :, None, None]
     noise_image2 = (noise_image2 - mean) / std
-
+    """
     # Denoise image
     denoised = model(noise_images)
     loss_function = torch.nn.MSELoss()
@@ -110,9 +110,9 @@ def loss_n2same(noise_images, device, model, lambda_inv=2):
     denoised = model(noise_images)
     denoised_mask = model(masked_input)
     mse = torch.nn.MSELoss()
-    loss_rec = mse(denoised, noise_images)
-    loss_inv = mse(denoised, denoised_mask)
-    return loss_rec/noise_images.shape[1] + lambda_inv * (loss_inv/maked_points).sqrt() #J = count of maked_points
+    loss_rec = mse(denoised, noise_images) #TODO:,dim=1,2,3
+    loss_inv = mse(denoised*mask, denoised_mask*mask)
+    return loss_rec/(noise_images.shape[1]*noise_images.shape[2]*noise_images.shape[3])+ lambda_inv * (loss_inv/maked_points).sqrt() #J = count of maked_points
 
 
 def n2n_loss_for_das(denoised, target):
@@ -127,7 +127,7 @@ TRAIN FUNKTIONS
 
 
 
-def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epoch, bestPsnr, writer):
+def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epoch, bestPsnr, writer, min_value, max_value):
     #mit lossfunktion aus "N2N(noiseToNoise)"
     #kabel ist gesplitet und ein Teil (src) wird im Model behandelt und der andere (target) soll verglichen werden
     loss_log = []
@@ -140,7 +140,8 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         model.eval()
     else:
         model.train()
-    for batch_idx, (noise_images, label) in enumerate(tqdm(dataLoader)): #src.shape=[batchsize, rgb, w, h]
+    for batch_idx, (original, label) in enumerate(tqdm(dataLoader)): #src.shape=[batchsize, rgb, w, h]
+        noise_images = add_norm_noise(original, sigma, min_value, max_value, a=-1, b=1)
         noise_images = noise_images.to(device)
         if batch_idx == max_Iteration:
             break
@@ -148,7 +149,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
     
 
         if methode == "n2n_orig":
-            loss, denoised, noise_image2 = loss_orig_n2n(noise_images, sigma, device, model)
+            loss, denoised, noise_image2 = loss_orig_n2n(original, noise_images, sigma, device, model, min_value, max_value)
             
         elif "score" in methode:
             loss, denoised, noise_images = loss_n2score(noise_images, sigma_min=1, sigma_max=30, q=batch_idx/len(dataLoader), 
@@ -161,17 +162,18 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         elif methode == "n2void":
             loss, denoised, noise_images = loss_orig_n2n(noise_images, model, num_patches_per_img=None, windowsize=5, num_masked_pixels=8)
             
-        psnr_original = Metric.calculate_psnr(noise_images, denoised)
+        psnr_original = Metric.calculate_psnr(original, denoised)
         denoised = (denoised-denoised.min())  / (denoised.max() - denoised.min())
         noise_images = (noise_images-noise_images.min())  / (noise_images.max() - noise_images.min())
+        original = (original-original.min())  / (original.max() - original.min())
 
 
         
         loss_log.append(loss.item())
 
         
-        psnr_batch = Metric.calculate_psnr(noise_images, denoised)
-        similarity_batch, diff_picture = Metric.calculate_similarity(noise_images, denoised)
+        psnr_batch = Metric.calculate_psnr(original, denoised)
+        similarity_batch, diff_picture = Metric.calculate_similarity(original, denoised)
         psnr_orig_log.append(psnr_original.item())
         psnr_log.append(psnr_batch.item())
         sim_log.append(similarity_batch)
@@ -218,14 +220,16 @@ def main(argv):
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.float()),
         transforms.Lambda(lambda x:  x * 2 -1), #[-1,1]
-        transforms.Lambda(lambda x: x + torch.randn_like(x) * sigma),  #Rauschen
-        transforms.Normalize(mean=mean_training, std=std_training), #Normaalisieren
+        #transforms.Lambda(lambda x: x + torch.randn_like(x) * sigma),  #Rauschen
+        #transforms.Normalize(mean=mean_training, std=std_training), #Normaalisieren
         ])
     print("lade Datensätze")
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=True, transform=transform_noise)
+    dataset = torch.utils.data.Subset(dataset, 10000)
     dataLoader = DataLoader(dataset, batch_size=64, shuffle=True)
 
     dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=True, transform=transform_noise)
+    dataLoader_validate = torch.utils.data.Subset(dataLoader_validate, 1000)
     dataLoader_validate = DataLoader(dataset_validate, batch_size=64, shuffle=True)
 
     mask = Mask.cut2self_mask((128,128), 64).to(device)
@@ -241,7 +245,7 @@ def main(argv):
     bestPsnr_val = -100
     for epoch in tqdm(range(max_Epochs)):
         loss, psnr, similarity, bestPsnr, psnr_orig = train(model, optimizer, device, dataLoader, methode, sigma=sigma, mode="train", 
-                                       store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer)
+                                       store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer, min_value=-1, max_value=1)
 
         for i, loss_item in enumerate(loss):
             writer.add_scalar('Train Loss', loss_item, epoch * len(dataLoader) + i)
@@ -260,7 +264,7 @@ def main(argv):
         """
         if epoch%10 == 0 or epoch == max_Epochs:
             loss_val, psnr_val, similarity_val, bestPsnr_val, psnr_orig_val = train(model, optimizer, device, dataLoader_validate, methode, sigma=sigma, mode="validate",
-                                          store=store_path, epoch=epoch, bestPsnr=bestPsnr_val, writer = writer)
+                                          store=store_path, epoch=epoch, bestPsnr=bestPsnr_val, writer = writer, min_value=-1, max_value=1)
             high_psnr = -100
             high_sim = -100
             for i, loss_item in enumerate(loss_val):

@@ -126,3 +126,16 @@ def calculate_mean_std_dataset(dataset, sigma, device, mean=None, std=None):
 
     #dataLoader = DataLoader(dataset, batch_size=64, shuffle=True, transform=transform_noise)
     return mean, std
+
+def calcullate_min_max(dataset):
+    min_v = None
+    max_v = None
+    dataLoader = DataLoader(dataset, batch_size=64, shuffle=True)
+    for batch_idx, (original, label) in enumerate(tqdm(dataLoader)):
+        memory = original.min()
+        if min_v > memory:
+            min_v = memory
+        memory = original.max()
+        if max_v < memory:
+            max_v = memory
+    return min_v, max_v
