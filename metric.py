@@ -1,4 +1,5 @@
 from skimage.metrics import structural_similarity as sim
+import statistics
 import torch
 import torch.nn.functional as F
 
@@ -31,6 +32,9 @@ class Metric:
         window = window.type_as(img1)
 
         return _ssim(img1, img2, window, window_size, channel, size_average)
+    
+    def avg_list(list):
+        return statistics.mean(list)
     
 
 

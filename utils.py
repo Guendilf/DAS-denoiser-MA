@@ -138,3 +138,8 @@ def normalize_image(image):
         print("kann nicht normalisieren, da kein Tensor")
         exit(32)
 
+def add_norm_noise(original, sigma, min_value, max_value, a, b):
+    noise = original + torch.randn_like(original) * sigma
+    noise = (noise-min_value) / (max_value-min_value) * (b-a)+a
+    return noise
+

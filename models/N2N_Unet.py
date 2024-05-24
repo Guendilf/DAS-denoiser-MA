@@ -207,28 +207,28 @@ class U_Net_origi(nn.Module):
         self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
 
         self.decoder1 = nn.Sequential(
-            nn.Conv2d(1024, 512, kernel_size=2),
+            nn.Conv2d(1024, 512, kernel_size=3),
             nn.ReLU(),
             nn.Conv2d(512, 512, kernel_size=3),
             nn.ReLU(), 
             nn.Upsample(scale_factor=2, mode='nearest'),
         )
         self.decoder2 = nn.Sequential(
-            nn.Conv2d(512, 256, kernel_size=2),
+            nn.Conv2d(512, 256, kernel_size=3),
             nn.ReLU(),
             nn.Conv2d(256, 256, kernel_size=3),
             nn.ReLU(), 
             nn.Upsample(scale_factor=2, mode='nearest'),
         )
         self.decoder3 = nn.Sequential(
-            nn.Conv2d(256, 128, kernel_size=2),
+            nn.Conv2d(256, 128, kernel_size=3),
             nn.ReLU(),
             nn.Conv2d(128, 128, kernel_size=3),
             nn.ReLU(), 
             nn.Upsample(scale_factor=2, mode='nearest'),
         )
         self.decoder4 = nn.Sequential(
-            nn.Conv2d(128, 64, kernel_size=2),
+            nn.Conv2d(128, 64, kernel_size=3),
             nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3),
             nn.ReLU(), 
@@ -245,7 +245,7 @@ class U_Net_origi(nn.Module):
         skip4 = self.encoder4(skip3)
         result = self.encoder5(skip4)
         result = self.upsample(result)
-
+                            #512,   1024
         result = torch.cat((skip4, result), 0) #TODO: check ob fesatures in dim 0 sind
         result = self.decoder1(result)
         result = torch.cat((skip3, result), 0)
@@ -254,6 +254,101 @@ class U_Net_origi(nn.Module):
         result = self.decoder3(result)
         result = torch.cat((skip1, result), 0)
         result = self.decoder4(result)
+        return result
+
+#angepasst an 128x128 bilder
+class U_Net(nn.Module):
+    def __init__(self):
+        super(U_Net, self).__init__()
+
+        self.encoder1 = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(), 
+        )
+        self.encoder2 = nn.Sequential(
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+        self.encoder3 = nn.Sequential(
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+        self.encoder4 = nn.Sequential(
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(256, 512, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(512, 512, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+        self.encoder5 = nn.Sequential(
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(512, 1024, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(1024, 1024, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+
+        self.decoder1 = nn.Sequential(
+            nn.Conv2d(1024, 512, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(512, 512, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode='nearest'),
+        )
+        self.decoder2 = nn.Sequential(
+            nn.Conv2d(1024, 256, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode='nearest'),
+        )
+        self.decoder3 = nn.Sequential(
+            nn.Conv2d(512, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode='nearest'),
+        )
+        self.decoder4 = nn.Sequential(
+            nn.Conv2d(256, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode='nearest'),
+        )
+        self.final_conv = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 3, kernel_size=1),
+        )
+
+    def forward(self, x):
+        # Encoder
+        skip1 = self.encoder1(x)  # (N, 64, 128, 128)
+        skip2 = self.encoder2(skip1)  # (N, 128, 64, 64)
+        skip3 = self.encoder3(skip2)  # (N, 256, 32, 32)
+        skip4 = self.encoder4(skip3)  # (N, 512, 16, 16)
+        result = self.encoder5(skip4)  # (N, 1024, 8, 8)
+
+        # Decoder with Skip Connections
+        result = self.decoder1(result)  # (N, 512, 16, 16)
+        result = torch.cat((result, skip4), dim=1)  # (N, 1024, 16, 16)
+        result = self.decoder2(result)  # (N, 256, 32, 32)
+        result = torch.cat((result, skip3), dim=1)  # (N, 512, 32, 32)
+        result = self.decoder3(result)  # (N, 128, 64, 64)
+        result = torch.cat((result, skip2), dim=1)  # (N, 256, 64, 64)
+        result = self.decoder4(result)  # (N, 64, 128, 128)
+        result = torch.cat((result, skip1), dim=1)  # (N, 128, 128, 128)
+        
+        result = self.final_conv(result)  # (N, 3, 128, 128)
         return result
 
 

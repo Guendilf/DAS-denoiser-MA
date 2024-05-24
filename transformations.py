@@ -70,7 +70,7 @@ def generate_patches(data, num_patches=None, shape=(64, 64), augment=True):
         indices = torch.randint(len(patches), (num_patches,))
         patches = patches[indices]
 
-    print('Generated patches:', patches.shape)
+    #print('Generated patches:', patches.shape)
     return patches
     
 def __extract_patches__(data, num_patches=None, shape=(64, 64)):
@@ -128,8 +128,8 @@ def calculate_mean_std_dataset(dataset, sigma, device, mean=None, std=None):
     return mean, std
 
 def calcullate_min_max(dataset):
-    min_v = None
-    max_v = None
+    min_v = 1000
+    max_v = -1000
     dataLoader = DataLoader(dataset, batch_size=64, shuffle=True)
     for batch_idx, (original, label) in enumerate(tqdm(dataLoader)):
         memory = original.min()
