@@ -5,7 +5,7 @@ import torchvision.transforms as transforms
 from tqdm import tqdm
 
 
-def generate_patches_from_list(data, num_patches_per_img=None, shape=(64, 64), augment=True, shuffle=False):
+def generate_patches_from_list(data, clean_image, num_patches_per_img=None, shape=(64, 64), augment=True, shuffle=False):
         """
         Extracts patches from 'list_data', which is a list of images, and returns them in a 'numpy-array'. The images
         can have different dimensionality.
@@ -13,6 +13,8 @@ def generate_patches_from_list(data, num_patches_per_img=None, shape=(64, 64), a
         Parameters
         ----------
         data                : list(array(float))
+                            List of images with dimensions 'SZYXC' or 'SYXC'
+        clean_image         : list(array(float))
                             List of images with dimensions 'SZYXC' or 'SYXC'
         num_patches_per_img : int, optional(default=None)
                             If 'None', as many patches as fit i nto the dimensions are extracted.
@@ -28,18 +30,27 @@ def generate_patches_from_list(data, num_patches_per_img=None, shape=(64, 64), a
         -------
         patches : array(float)
                 Numpy-Array with the patches. The dimensions are 'SZYXC' or 'SYXC'
+        clean_patches : array(float)
+                Numpy-Array with the coresponding patches from clean data. The dimensions are 'SZYXC' or 'SYXC'
         """
         patches = []
+        clean_patches = []
+        i=0
         for img in data:
-            patches.append( generate_patches(img.unsqueeze(0), num_patches=num_patches_per_img, shape=shape, augment=augment) )
+            patch, clean_patch = generate_patches(img.unsqueeze(0), clean_image[i].unsqueeze(0), num_patches=num_patches_per_img, shape=shape, augment=augment)
+            patches.appeend(patch)
+            clean_patches.append(clean_patch)
+            #patches.append( generate_patches(img.unsqueeze(0), clean_image[i].unsqueeze(0), num_patches=num_patches_per_img, shape=shape, augment=augment) )
         patches = torch.cat(patches, dim=0)
+        clean_patches = torch.cat(clean_patches, dim=0)
 
         if shuffle:
             indices = torch.randperm(len(patches))
             patches = patches[indices]
-        return patches
+            clean_patches = clean_patches[indices]
+        return patches, clean_patches
 
-def generate_patches(data, num_patches=None, shape=(64, 64), augment=True):
+def generate_patches(data, clean_image, num_patches=None, shape=(64, 64), augment=True):
     """
     Extracts patches from 'data'. The patches can be augmented, which means they get rotated three times
     in XY-Plane and flipped along the X-Axis. Augmentation leads to an eight-fold increase in training data.
@@ -47,6 +58,8 @@ def generate_patches(data, num_patches=None, shape=(64, 64), augment=True):
     Parameters
     ----------
     data        : list(array(float))
+                List of images with dimensions 'SZYXC' or 'SYXC'
+    clean_image : list(array(float))
                 List of images with dimensions 'SZYXC' or 'SYXC'
     num_patches : int, optional(default=None)
                 Number of patches to extract per image. If 'None', as many patches as fit into the
@@ -61,30 +74,38 @@ def generate_patches(data, num_patches=None, shape=(64, 64), augment=True):
     patches : array(float)
             Numpy-Array containing all patches (randomly shuffled along S-dimension).
             The dimensions are 'SZYXC' or 'SYXC'
+    clean_patches : array(float)
+            Numpy-Array containing all patches from clean data (randomly shuffled along S-dimension).
+            The dimensions are 'SZYXC' or 'SYXC'
     """
-    patches = __extract_patches__(data, num_patches=num_patches, shape=shape)
+    patches, clean_patches = __extract_patches__(data, clean_image, num_patches=num_patches, shape=shape)
     if augment and shape[0] == shape[1]:
         patches = __augment_patches__(patches)
+        clean_patches = __augment_patches__(clean_patches)
 
     if num_patches is not None:
         indices = torch.randint(len(patches), (num_patches,))
         patches = patches[indices]
+        clean_patches = clean_patches[indices]
 
     #print('Generated patches:', patches.shape)
-    return patches
+    return patches, clean_patches
     
-def __extract_patches__(data, num_patches=None, shape=(64, 64)):
+def __extract_patches__(data, clean_image, num_patches=None, shape=(64, 64)):
     patches = []
+    clean_patches = []
     if num_patches is None:
         if data.shape[-2] >= shape[0] and data.shape[-1] >= shape[1]:
             for y in range(0, data.shape[-2] - shape[0] + 1, shape[0]):
                 for x in range(0, data.shape[-1] - shape[1] + 1, shape[1]):
                     patches.append(data[..., y:y + shape[0], x:x + shape[1]])
+                    clean_patches.append(clean_image[..., y:y + shape[0], x:x + shape[1]])
     else:
         for i in range(num_patches):
             y, x = torch.randint(0, data.shape[-2] - shape[0] + 1, (2,))
             patches.append(data[..., y:y + shape[0], x:x + shape[1]])
-    return torch.cat(patches, axis=0)
+            clean_patches.append(clean_image[..., y:y + shape[0], x:x + shape[1]])
+    return torch.cat(patches, axis=0), torch.cat(clean_patches, axis=0)
 
 def __augment_patches__(patches):
     augmented = torch.cat((patches,

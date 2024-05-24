@@ -90,19 +90,19 @@ def loss_n2self(noise_image, batch_idx, model):
     return torch.nn.MSELoss()(denoised*mask, noise_image*mask), denoised, masked_noise_image
 
 
-def loss_n2void(noise_images, model, num_patches_per_img, windowsize, num_masked_pixels):
-    patches = generate_patches_from_list(noise_images, num_patches_per_img=num_patches_per_img)
-    mask  = Mask.n2void_mask(patches.shape, num_masked_pixels=8)
+def loss_n2void(original_images, noise_images, model, device, num_patches_per_img, windowsize, num_masked_pixels):
+    patches, clean_patches = generate_patches_from_list(noise_images, original_images, num_patches_per_img=num_patches_per_img)
+    mask  = Mask.n2void_mask(patches.shape, num_masked_pixels=8).to(device)
 
 
-    masked_noise = Mask.excchange_in_mask_with_pixel_in_window(mask, patches, windowsize, num_masked_pixels)
+    masked_noise = Mask.exchange_in_mask_with_pixel_in_window(mask, patches, windowsize, num_masked_pixels)
     
     denoised = model(masked_noise)
     denoised_pixel = denoised * mask
     target_pixel = patches * mask
     
     loss_function = torch.nn.MSELoss() #TODO: richtigge Loss, funktion?
-    return loss_function(denoised_pixel, target_pixel), denoised, patches
+    return loss_function(denoised_pixel, target_pixel), denoised, patches, clean_patches
 
 def loss_n2same(noise_images, device, model, lambda_inv=2):
     mask, maked_points = (Mask.cut2self_mask((noise_images.shape[2],noise_images.shape[3]), noise_images.shape[0], mask_size=(1, 1), mask_percentage=0.0005)) #0,5% Piel maskieren
@@ -164,8 +164,9 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
             loss, denoised, masked_noise_image = loss_n2self(noise_images, batch_idx, model)
 
         elif methode == "n2void":
-            loss, denoised, patches = loss_n2void(noise_images, model, num_patches_per_img=None, windowsize=5, num_masked_pixels=8)
+            loss, denoised, patches, original_patches = loss_n2void(original, noise_images, model, device, num_patches_per_img=None, windowsize=5, num_masked_pixels=8)
             noise_images = patches
+            original = original_patches
         elif methode == "n2same":
             loss, denoised, denoised_mask = loss_n2same(noise_images, device, model, lambda_inv=2)
             

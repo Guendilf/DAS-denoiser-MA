@@ -61,7 +61,7 @@ class Mask:
                 mask_for_batch.append(select_random_pixels((image_shape[1],image_shape[2],image_shape[3]), num_masked_pixels))
             return torch.stack(mask_for_batch)
     
-    def excchange_in_mask_with_pixel_in_window(mask, data, windowsize, num_masked_pixels):
+    def exchange_in_mask_with_pixel_in_window(mask, data, windowsize, num_masked_pixels):
         """
         ersetzt die ausgewählten Pixel durch die Maske mit einem zufälligem Pixel in der Fenstergröße.
         Zentrum des Fensters ist das Pixel
