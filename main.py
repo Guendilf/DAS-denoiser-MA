@@ -210,11 +210,11 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         
 
 def main(argv):
-    #device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = "cuda:3"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    #device = "cuda:3"
     methoden_liste = ["n2n_orig", "score", "n2self", "n2void", "n2same"]
     methode = methoden_liste[3]
-    store_path = log_files()
+    
     #run = wandb.init(entity="", project="my-project-name", anonymous="allow")
     layout = {
         "Training vs Validation": {
@@ -223,8 +223,7 @@ def main(argv):
             "Similarity": ["Multiline", ["sim/train", "sim/validation"]],
         },
     }
-    writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
-    writer.add_custom_scalars(layout)
+    
     #writer = None
     sigma=0.4
 
@@ -246,73 +245,80 @@ def main(argv):
     print("lade Datensätze")
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise)
     dataset = torch.utils.data.Subset(dataset, list(range(64000)))
-    dataLoader = DataLoader(dataset, batch_size=64, shuffle=True)
+    
 
     dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=False, transform=transform_noise)
     dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(6400)))
-    dataLoader_validate = DataLoader(dataset_validate, batch_size=64, shuffle=True)
+    
 
     #mask = Mask.cut2self_mask((128,128), 64).to(device)
-
-    #model = N2N_Orig_Unet(3,3).to(device)
-    model = U_Net().to(device)
-    #model = Cut2Self(mask).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
 
     
     print(f"Using {device} device")
     #run.watch(model)
-    bestPsnr = -100
-    bestPsnr_val = -100
-    for epoch in tqdm(range(max_Epochs)):
-        loss, psnr, similarity, bestPsnr, psnr_orig = train(model, optimizer, device, dataLoader, methode, sigma=sigma, mode="train", 
-                                       store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer, min_value=-3.25, max_value=3.25, min_value2=-5.67, max_value2=5.83)
+    
+    for methode in methoden_liste:
+        dataLoader = DataLoader(dataset, batch_size=64, shuffle=True)
+        dataLoader_validate = DataLoader(dataset_validate, batch_size=64, shuffle=True)
+        model = N2N_Orig_Unet(3,3).to(device)
+        #model = U_Net().to(device)
+        #model = Cut2Self(mask).to(device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
+        bestPsnr = -100
+        bestPsnr_val = -100
+        store_path = log_files()
+        writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
+        writer.add_custom_scalars(layout)
 
-        
-        for i, loss_item in enumerate(loss):
-            writer.add_scalar('Train Loss', loss_item, epoch * len(dataLoader) + i)
-            writer.add_scalar('Train PSNR_iteration [0,1]', psnr[i], epoch * len(dataLoader) + i)
-            writer.add_scalar('Train PSNR_iteration [-1,1]', psnr_orig[i], epoch * len(dataLoader) + i)
-            writer.add_scalar('Train Similarity_iteration', similarity[i], epoch * len(dataLoader) + i)
-        writer.add_scalar('Train PSNR [0,1] avg', Metric.avg_list(psnr), epoch)
-        writer.add_scalar('Train PSNR [-1,1] avg', Metric.avg_list(psnr_orig), epoch)
-        
-        high_psnr = max(psnr)
-        high_sim = max(similarity)
-        if epoch % 5 == 0 or round(max(psnr),1) > bestPsnr:
-            if round(max(psnr),1) > bestPsnr:
-                bestPsnr = round(max(psnr),1)
-            model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
-            torch.save(model.state_dict(), model_save_path)
-        print("Epochs highest PSNR: ", high_psnr)
-        print("Epochs highest Sim: ", high_sim)
-        
-        """
-        #if epoch%10 == 0 or epoch == max_Epochs:
-        loss_val, psnr_val, similarity_val, bestPsnr_val, psnr_orig_val = train(model, optimizer, device, dataLoader_validate, methode, sigma=sigma, mode="validate",
-                                      store=store_path, epoch=epoch, bestPsnr=bestPsnr_val, writer = writer, min_value=-3.2, max_value=3.15, min_value2=-5.4, max_value2=5.32)
-        high_psnr = -100
-        high_sim = -100
-        for i, loss_item in enumerate(loss_val):
-            writer.add_scalar('Validation Loss', loss_item, epoch * len(dataLoader) + i)
-            writer.add_scalar('Validation PSNR_iteration [0,1]', psnr_val[i], epoch * len(dataLoader) + i)
-            writer.add_scalar('Validation PSNR_iteration [-1,1]', psnr_orig_val[i], epoch * len(dataLoader) + i)
-            writer.add_scalar('Validation Similarity_iteration', similarity_val[i], epoch * len(dataLoader) + i)
-        writer.add_scalar('Validation PSNR [0,1] avg', Metric.avg_list(psnr_val), epoch)
-        writer.add_scalar('Validation PSNR [-1,1] avg', Metric.avg_list(psnr_orig_val), epoch)
-        high_psnr = max(psnr_val)
-        high_sim = max(similarity_val)
-        if max(psnr_val) > bestPsnr_val:
-            bestPsnr_val = max(psnr_val)
-        print("Epochs highest PSNR: ", high_psnr)
-        print("Epochs highest Sim: ", high_sim)
-        writer.add_scalar("loss/train", Metric.avg_list(loss), epoch)
-        writer.add_scalar("loss/validation", Metric.avg_list(loss_val), epoch)
-        writer.add_scalar("PSNR/train", Metric.avg_list(psnr), epoch)
-        writer.add_scalar("PSNR/validation", Metric.avg_list(psnr_val), epoch)
-        writer.add_scalar("sim/validation", Metric.avg_list(similarity), epoch)
-        writer.add_scalar("sim/validation", Metric.avg_list(similarity_val), epoch)
-        """
+        for epoch in tqdm(range(max_Epochs)):
+            loss, psnr, similarity, bestPsnr, psnr_orig = train(model, optimizer, device, dataLoader, methode, sigma=sigma, mode="train", 
+                                        store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer, min_value=-3.25, max_value=3.25, min_value2=-5.67, max_value2=5.83)
+
+            
+            for i, loss_item in enumerate(loss):
+                writer.add_scalar('Train Loss', loss_item, epoch * len(dataLoader) + i)
+                writer.add_scalar('Train PSNR_iteration [0,1]', psnr[i], epoch * len(dataLoader) + i)
+                writer.add_scalar('Train PSNR_iteration [-1,1]', psnr_orig[i], epoch * len(dataLoader) + i)
+                writer.add_scalar('Train Similarity_iteration', similarity[i], epoch * len(dataLoader) + i)
+            writer.add_scalar('Train PSNR [0,1] avg', Metric.avg_list(psnr), epoch)
+            writer.add_scalar('Train PSNR [-1,1] avg', Metric.avg_list(psnr_orig), epoch)
+            
+            high_psnr = max(psnr)
+            high_sim = max(similarity)
+            if epoch % 5 == 0 or round(max(psnr),1) > bestPsnr:
+                if round(max(psnr),1) > bestPsnr:
+                    bestPsnr = round(max(psnr),1)
+                model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
+                torch.save(model.state_dict(), model_save_path)
+            print("Epochs highest PSNR: ", high_psnr)
+            print("Epochs highest Sim: ", high_sim)
+            
+            """
+            #if epoch%10 == 0 or epoch == max_Epochs:
+            loss_val, psnr_val, similarity_val, bestPsnr_val, psnr_orig_val = train(model, optimizer, device, dataLoader_validate, methode, sigma=sigma, mode="validate",
+                                        store=store_path, epoch=epoch, bestPsnr=bestPsnr_val, writer = writer, min_value=-3.2, max_value=3.15, min_value2=-5.4, max_value2=5.32)
+            high_psnr = -100
+            high_sim = -100
+            for i, loss_item in enumerate(loss_val):
+                writer.add_scalar('Validation Loss', loss_item, epoch * len(dataLoader) + i)
+                writer.add_scalar('Validation PSNR_iteration [0,1]', psnr_val[i], epoch * len(dataLoader) + i)
+                writer.add_scalar('Validation PSNR_iteration [-1,1]', psnr_orig_val[i], epoch * len(dataLoader) + i)
+                writer.add_scalar('Validation Similarity_iteration', similarity_val[i], epoch * len(dataLoader) + i)
+            writer.add_scalar('Validation PSNR [0,1] avg', Metric.avg_list(psnr_val), epoch)
+            writer.add_scalar('Validation PSNR [-1,1] avg', Metric.avg_list(psnr_orig_val), epoch)
+            high_psnr = max(psnr_val)
+            high_sim = max(similarity_val)
+            if max(psnr_val) > bestPsnr_val:
+                bestPsnr_val = max(psnr_val)
+            print("Epochs highest PSNR: ", high_psnr)
+            print("Epochs highest Sim: ", high_sim)
+            writer.add_scalar("loss/train", Metric.avg_list(loss), epoch)
+            writer.add_scalar("loss/validation", Metric.avg_list(loss_val), epoch)
+            writer.add_scalar("PSNR/train", Metric.avg_list(psnr), epoch)
+            writer.add_scalar("PSNR/validation", Metric.avg_list(psnr_val), epoch)
+            writer.add_scalar("sim/validation", Metric.avg_list(similarity), epoch)
+            writer.add_scalar("sim/validation", Metric.avg_list(similarity_val), epoch)
+            """
 
         
 

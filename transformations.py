@@ -38,7 +38,7 @@ def generate_patches_from_list(data, clean_image, num_patches_per_img=None, shap
         i=0
         for img in data:
             patch, clean_patch = generate_patches(img.unsqueeze(0), clean_image[i].unsqueeze(0), num_patches=num_patches_per_img, shape=shape, augment=augment)
-            patches.appeend(patch)
+            patches.append(patch)
             clean_patches.append(clean_patch)
             #patches.append( generate_patches(img.unsqueeze(0), clean_image[i].unsqueeze(0), num_patches=num_patches_per_img, shape=shape, augment=augment) )
         patches = torch.cat(patches, dim=0)

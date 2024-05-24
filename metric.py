@@ -12,10 +12,10 @@ class Metric:
         return psnr
 
     def calculate_similarity(image1, image2):
-        image_range = (image1.max() - image1.min()).item()
-        im1 = image1.cpu().detach().numpy()
-        im2 = image2.cpu().detach().numpy()
-        similarity_index, diff_image = sim(im1, im2, data_range=image_range, channel_axis=1, full=True)
+        image1 = image1.cpu().detach().numpy()
+        image2 = image2.cpu().detach().numpy()
+        image_range = image1.max() - image1.min()
+        similarity_index, diff_image = sim(image1, image2, data_range=image_range, channel_axis=1, full=True)
         return similarity_index, diff_image
     
 
@@ -42,7 +42,7 @@ class Metric:
 
 
 def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])
+    gauss = torch.Tensor([torch.exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])
     return gauss / gauss.sum()
 
 def create_window(window_size, channel):
