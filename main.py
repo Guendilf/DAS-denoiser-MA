@@ -6,7 +6,7 @@ from pathlib import Path
 from tqdm import tqdm
 from skimage.metrics import structural_similarity as sim
 
-from models.N2N_Unet import N2N_Unet_DAS, N2N_Orig_Unet, Cut2Self, U_Net_origi, U_Net
+from models.N2N_Unet import N2N_Unet_DAS, N2N_Orig_Unet, Cut2Self, U_Net_origi, U_Net, TestNet
 from metric import Metric
 from masks import Mask
 from utils import show_logs, show_pictures_from_dataset, log_files, show_tensor_as_picture,  normalize_image, add_norm_noise
@@ -77,10 +77,10 @@ def loss_n2score(noise_images, sigma_min, sigma_max, q, device, model, methode):
     #loss, src1 = loss_SURE(src1, target, model, sigma)
     denoised = model(noise_images+noise)
     if methode == "score_ar":
-        loss = ((u + sigma_a*denoised)**2).sum().sqrt()
+        loss = ((u + sigma_a*denoised)**2).mean()
     else:
-        loss = ((noise_images - denoised)**2).sum().sqrt()
-    return loss/noise_images.numel(), denoised, noise_images
+        loss = ((noise_images - denoised)**2).mean()
+    return loss, denoised, noise_images
 
 
 def loss_n2self(noise_image, batch_idx, model):
@@ -114,7 +114,7 @@ def loss_n2same(noise_images, device, model, lambda_inv=2):
     denoised_mask = model(masked_input)
     mse = torch.nn.MSELoss()
     loss_rec = torch.mean((denoised-noise_images)**2) # mse(denoised, noise_images)
-    loss_inv = torch.mean((denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
+    loss_inv = torch.mean(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
     loss = loss_rec/(noise_images.shape[1]*noise_images.shape[2]*noise_images.shape[3])+ lambda_inv * (loss_inv/marked_points).sqrt()
     return loss, denoised, denoised_mask #J = count of maked_points
 
@@ -161,7 +161,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                                                         device=device, model=model, methode=methode)
             #TODO: abhängig vom Noise, wird rekonstruiertes Endbild noch bearbeitet -> Suplemenrtary
             if "tweedie" in methode:
-                denoised = denoised + 25**2*loss
+                denoised = noise_images + sigma**2*denoised
 
         elif methode == "n2self":
             loss, denoised, masked_noise_image = loss_n2self(noise_images, batch_idx, model)
@@ -169,6 +169,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         elif methode == "n2void":
             loss, denoised, patches, original_patches = loss_n2void(original, noise_images, model, device, num_patches_per_img=None, windowsize=5, num_masked_pixels=8)
             noise_images = patches
+            batch = original.shape[0]
             original = original_patches
         elif methode == "n2same":
             loss, denoised, denoised_mask = loss_n2same(noise_images, device, model, lambda_inv=2)
@@ -202,7 +203,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                 print(f"saved new best model at path {model_save_path}")
                 #denoised_norm = normalize_image(denoised)
                 if methode == "n2void":
-                    skip = denoised.shape[0] / 64 #64=ursprüngllichhe Batchgröße
+                    skip = int(denoised.shape[0] / batch) #64=ursprüngllichhe Batchgröße
                     denoised = denoised[::skip] # zeige nur jedes 6. Bild an (im path wird aus einem bild 6 wenn die Batchhgröße = 64)
                 grid = make_grid(denoised, nrow=16, normalize=False) # Batch/number bilder im Raster
                 writer.add_image('Denoised Images', grid, global_step=epoch * len(dataLoader) + batch_idx)
@@ -218,8 +219,9 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
 def main(argv):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     #device = "cuda:3"
-    methoden_liste = ["n2n_orig", "score_ar", "score_ar tweedie", "n2self", "n2void", "n2same"]
-    methode = methoden_liste[3]
+    methoden_liste = ["n2void", "n2n_orig", "score_ar tweedie", "n2self", "n2same", "n2void"]
+    methoden_liste = ["n2same"]
+    #methode = methoden_liste[5]
     
     #run = wandb.init(entity="", project="my-project-name", anonymous="allow")
     layout = {
@@ -250,11 +252,11 @@ def main(argv):
         ])
     print("lade Datensätze")
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise)
-    dataset = torch.utils.data.Subset(dataset, list(range(64000)))
+    dataset = torch.utils.data.Subset(dataset, list(range(6400)))
     
 
     dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=False, transform=transform_noise)
-    dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(6400)))
+    dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(640)))
     
 
     #mask = Mask.cut2self_mask((128,128), 64).to(device)
@@ -264,9 +266,13 @@ def main(argv):
     #run.watch(model)
     
     for methode in methoden_liste:
-        dataLoader = DataLoader(dataset, batch_size=64, shuffle=True)
-        dataLoader_validate = DataLoader(dataset_validate, batch_size=64, shuffle=True)
-        model = N2N_Orig_Unet(3,3).to(device)
+        if methode == "n2void":
+            dataset = torch.utils.data.Subset(dataset, list(range(1056)))
+            dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(128)))
+        dataLoader = DataLoader(dataset, batch_size=32, shuffle=True)
+        dataLoader_validate = DataLoader(dataset_validate, batch_size=32, shuffle=True)
+        #model = N2N_Orig_Unet(3,3).to(device)
+        model = TestNet(3,3).to(device)
         #model = U_Net().to(device)
         #model = Cut2Self(mask).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.003)

@@ -163,6 +163,35 @@ class N2N_Orig_Unet(nn.Module):
         return output
     
 
+class TestNet(nn.Module):
+    def __init__(self, input_chanels, output_chanels):
+        super(TestNet, self).__init__()
+
+        self.input_chanels = input_chanels
+        self.output_chanels = output_chanels
+
+        self.net1 = nn.Sequential(
+            nn.Conv2d(in_channels=self.input_chanels, out_channels=48, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+
+            nn.Conv2d(in_channels=48, out_channels=3, kernel_size=3, padding='same'),
+            nn.LeakyReLU(0.1),
+
+        )
+
+
+        #self.apply(layer_init)
+
+    
+    def forward(self, x):
+        output = self.net1(x)
+        return output
+
+
+
+
 
 #original U-Net aritecckture - Quelle 30
 class U_Net_origi(nn.Module):
