@@ -106,7 +106,7 @@ def show_logs(loss, psnr, value_loss, value_psnr, similarity):
 
 def log_files():
     current_path = Path(os.getcwd())
-    store_path = Path(os.path.join(current_path, "runs", f"run-{str(datetime.now()).replace(':', '-')}"))
+    store_path = Path(os.path.join(current_path, "runs", f"run-{str(datetime.now().replace(microsecond=0)).replace(':', '-')}"))
     store_path.mkdir(parents=True, exist_ok=True)
     models_path = Path(os.path.join(store_path, "models"))
     models_path.mkdir(parents=True, exist_ok=True)
@@ -138,8 +138,10 @@ def normalize_image(image):
         print("kann nicht normalisieren, da kein Tensor")
         exit(32)
 
-def add_norm_noise(original, sigma, min_value, max_value, a, b):
+def add_norm_noise(original, sigma, min_value, max_value, a, b, norm=True):
+
     noise = original + torch.randn_like(original) * sigma
-    noise = (noise-min_value) / (max_value-min_value) * (b-a)+a
+    if norm:
+        noise = (noise-min_value) / (max_value-min_value) * (b-a)+a
     return noise
 

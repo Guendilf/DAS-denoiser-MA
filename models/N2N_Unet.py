@@ -42,7 +42,7 @@ class N2N_Unet_DAS(nn.Module):
             #linear activation
         )
 
-        #self.apply(layer_init)
+        self.apply(layer_init)
 
     
     def forward(self, x):
@@ -54,10 +54,10 @@ class N2N_Unet_DAS(nn.Module):
 
 
 
-    #def layer_init(layer, std=0.1, bias_const=0.0):
-    #    if isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear):
-    #        torch.nn.init.kaiming_normal_(layer.weight)
-    #        torch.nn.init.constant_(layer.bias, 0)
+def layer_init(layer, std=0.1, bias_const=0.0):
+    if isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear):
+        torch.nn.init.kaiming_normal_(layer.weight)
+        torch.nn.init.constant_(layer.bias, 0)
 
 
 #for use on CelebA - Original Paper of N2N - Quelle 1
@@ -139,7 +139,7 @@ class N2N_Orig_Unet(nn.Module):
             nn.LeakyReLU(0.1),
         )
 
-        #self.apply(layer_init)
+        self.apply(layer_init)
 
     
     def forward(self, x):
@@ -182,7 +182,7 @@ class TestNet(nn.Module):
         )
 
 
-        #self.apply(layer_init)
+        self.apply(layer_init)
 
     
     def forward(self, x):
@@ -264,6 +264,7 @@ class U_Net_origi(nn.Module):
             nn.Conv2d(64, 3, kernel_size=1),
             nn.ReLU(), 
         )
+        self.apply(layer_init)
 
     def forward(self, x):
         if not x.shape[2] == 572:
@@ -358,6 +359,7 @@ class U_Net(nn.Module):
             nn.ReLU(),
             nn.Conv2d(64, 3, kernel_size=1),
         )
+        self.apply(layer_init)
 
     def forward(self, x):
         # Encoder
@@ -422,9 +424,7 @@ class Cut2Self(nn.Module):
             nn.LeakyReLU(0.1),
         )
 
-
-
-        #self.apply(layer_init)
+        self.apply(layer_init)
 
     
     def forward(self, x, mask=None):

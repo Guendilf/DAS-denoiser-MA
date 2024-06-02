@@ -23,27 +23,18 @@ from torchvision.utils import make_grid
 #sys.path.insert(0, str(Path(__file__).resolve().parents[3])) #damit die Pfade auf dem Server richtig waren (copy past von PG)
 from absl import app
 from torch.utils.tensorboard import SummaryWriter
-#tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\Code\DAS-denoiser-MA\runs"      #PC
-#tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\runs"                           #vom Server
-
+#tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\Code\DAS-denoiser-MA\runs"
+#import wandb
 
 
 max_Iteration = 10
-max_Epochs = 2
+max_Epochs = 20
 
 
 
 """
 Pre-Processing FUNKTIONS
 """
-
-
-def add_gaus_noise(image, mean, sigma):
-    noise = torch.randn_like(image) * sigma + mean
-    noisy_image = image + noise
-    noisy_image = torch.clamp(noisy_image, 0, 1)
-    return noisy_image
- 
  
 
 """
@@ -51,27 +42,7 @@ LOSS FUNKTIONS  +  EVALUATION FUNKTIONS
 """
 
 
-#original Loss funktion from N2N paper
-def loss_orig_n2n(original, noise_images, sigma, device, model, min_value, max_value, a=-1, b=1):
-    #src1 = add_gaus_noise(original, 0.5, sigma).to(device)
-    #schöner 1 Zeiler:
-    noise_image2 = add_norm_noise(original, sigma+0.3, min_value, max_value, a=-1, b=1)
-    noise_image2 = noise_image2.to(device) #+ mean
-    """
-    #norm noise2 images:
-    mean = torch.tensor([0.0842, -0.2211, -0.3848]).to(device)
-    std = torch.tensor([1.0012, 1.0035, 0.9994]).to(device)
-    mean = mean[None, :, None, None]
-    std = std[None, :, None, None]
-    noise_image2 = (noise_image2 - mean) / std
-    """
-    # Denoise image
-    denoised = model(noise_images)
-    loss_function = torch.nn.MSELoss()
-    return loss_function(denoised, noise_image2), denoised, noise_image2
-
-
-def loss_n2score(noise_images, sigma_min, sigma_max, q, device, model, methode): #q=batchindex/dataset
+def loss_n2score(noise_images, sigma_min, sigma_max, q, device, model, methode, sigma): #q=batchindex/dataset
     u = torch.randn_like(noise_images).to(device)
     sigma_a = sigma_max*(1-q) + sigma_min*q
     noise = sigma_a*u
@@ -80,51 +51,14 @@ def loss_n2score(noise_images, sigma_min, sigma_max, q, device, model, methode):
     if methode == "score_ar":
         loss = ((u + sigma_a*denoised)**2).mean()
     else:
-        loss = ((noise_images - denoised)**2).mean()
+        mse = torch.nn.MSELoss()
+        output_f = ((sigma/255)**2)*denoised
+        recon = output_f + noise_images+noise
+        loss = mse(denoised *sigma, -u)
+        loos2 = mse(recon, noise_images)
     return loss, denoised, noise_images
 
 
-def loss_n2self(noise_image, batch_idx, model):
-    masked_noise_image, mask = Mask.n2self_mask(noise_image, batch_idx)
-    denoised = model(masked_noise_image)
-    #j_invariant_denoised = n2self_infer_full_image(noise_image, model)  #TODO: weiß noch nicht was das ist und wofür es benutzt wird
-    return torch.nn.MSELoss()(denoised*mask, noise_image*mask), denoised, masked_noise_image
-
-
-def loss_n2void(original_images, noise_images, model, device, num_patches_per_img, windowsize, num_masked_pixels):
-    patches, clean_patches = generate_patches_from_list(noise_images, original_images, num_patches_per_img=num_patches_per_img)
-    mask  = Mask.n2void_mask(patches.shape, num_masked_pixels=8).to(device)
-
-
-    masked_noise = Mask.exchange_in_mask_with_pixel_in_window(mask, patches, windowsize, num_masked_pixels)
-    
-    denoised = model(masked_noise)
-    denoised_pixel = denoised * mask
-    target_pixel = patches * mask
-    
-    loss_function = torch.nn.MSELoss() #TODO: richtigge Loss, funktion?
-    return loss_function(denoised_pixel, target_pixel), denoised, patches, clean_patches
-
-def loss_n2same(noise_images, device, model, lambda_inv=2):
-    mask, marked_points = (Mask.cut2self_mask((noise_images.shape[2],noise_images.shape[3]), noise_images.shape[0], mask_size=(1, 1), mask_percentage=0.0005)) #0,5% Piel maskieren
-    mask = mask.to(device)
-    mask = mask.unsqueeze(1)  # (b, 1, w, h)
-    mask = mask.expand(-1, 3, -1, -1) # (b, 3, w, h)
-    masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
-    denoised = model(noise_images)
-    denoised_mask = model(masked_input)
-    mse = torch.nn.MSELoss()
-    loss_rec = torch.mean((denoised-noise_images)**2) # mse(denoised, noise_images)
-    loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
-    loss = loss_rec + lambda_inv * (loss_inv/marked_points).sqrt()
-    return loss, denoised, denoised_mask #J = count of maked_points
-
-
-def n2n_loss_for_das(denoised, target):
-    loss_function = torch.nn.MSELoss()
-    loss = loss_function(target, denoised)
-    #len(noisy) = anzahl an Bildern
-    return 1/len(target) *loss #+c #c = varianze of noise
 
 """
 TRAIN FUNKTIONS
@@ -147,33 +81,20 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         model.train()
     for batch_idx, (original, label) in enumerate(tqdm(dataLoader)): #src.shape=[batchsize, rgb, w, h]
         original = original.to(device)
-        noise_images = add_norm_noise(original, sigma, min_value, max_value, a=-1, b=1)
+        if "norm" in methode:
+            noise_images = add_norm_noise(original, sigma, min_value, max_value, a=-1, b=1)
+        else:
+            noise_images = add_norm_noise(original, sigma, min_value, max_value, a=-1, b=1, norm=False)
         noise_images = noise_images.to(device)
-        if batch_idx == max_Iteration:
-            break
+        #if batch_idx == max_Iteration:
+            #break
         torch.set_grad_enabled(mode=="train")
-    
 
-        if methode == "n2n_orig":
-            loss, denoised, noise_image2 = loss_orig_n2n(original, noise_images, sigma, device, model, min_value2, max_value2)
-            
-        elif "score" in methode:
-            loss, denoised, noise_images= loss_n2score(noise_images, sigma_min=1, sigma_max=30, q=batch_idx/len(dataLoader), 
-                                                        device=device, model=model, methode=methode)
-            #TODO: abhängig vom Noise, wird rekonstruiertes Endbild noch bearbeitet -> Suplemenrtary
-            if "tweedie" in methode:
-                denoised = noise_images + sigma**2*denoised
+        loss, denoised, noise_images = loss_n2score(noise_images, sigma_min=1, sigma_max=30, q=epoch/max_Epochs, #q=batch_idx/len(dataLoader), 
+                                                    device=device, model=model, methode=methode, sigma=sigma)
+        if "tweedie" in methode:
+            denoised = noise_images + sigma**2*denoised
 
-        elif methode == "n2self":
-            loss, denoised, masked_noise_image = loss_n2self(noise_images, batch_idx, model)
-
-        elif methode == "n2void":
-            loss, denoised, patches, original_patches = loss_n2void(original, noise_images, model, device, num_patches_per_img=None, windowsize=5, num_masked_pixels=8)
-            noise_images = patches
-            batch = original.shape[0]
-            original = original_patches
-        elif methode == "n2same":
-            loss, denoised, denoised_mask = loss_n2same(noise_images, device, model, lambda_inv=2)
             
         
         psnr_original = Metric.calculate_psnr(original, denoised)
@@ -195,21 +116,19 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            if round(psnr_batch.item(),1) > bestPsnr:# or similarity_batch > bestSim:
-                bestSim = similarity_batch
-                bestPsnr = round(psnr_batch.item(),1)
-                print(f"best model found with psnr: {bestPsnr}")
-                model_save_path = os.path.join(store, "models", f"{round(bestPsnr, 1)}NewBestRewardModel{epoch}-{batch_idx}.pth")
-                torch.save(model.state_dict(), model_save_path)
-                print(f"saved new best model at path {model_save_path}")
-                #denoised_norm = normalize_image(denoised)
-                if methode == "n2void":
-                    skip = int(denoised.shape[0] / batch) #64=ursprüngllichhe Batchgröße
-                    denoised = denoised[::skip] # zeige nur jedes 6. Bild an (im path wird aus einem bild 6 wenn die Batchhgröße = 64)
+            if round(psnr_batch.item(),1) > bestPsnr or batch_idx == len(dataLoader)-1:# or similarity_batch > bestSim:
+                if round(psnr_batch.item(),1) > bestPsnr:
+                    bestSim = similarity_batch
+                    bestPsnr = round(psnr_batch.item(),1)
+                    print(f"best model found with psnr: {bestPsnr}")
+                    model_save_path = os.path.join(store, "models", f"{round(bestPsnr, 1)}NewBestRewardModel{epoch}-{batch_idx}.pth")
+                    print(f"saved new best model at path {model_save_path}")
+                    #denoised_norm = normalize_image(denoised)
+                
                 grid = make_grid(denoised, nrow=16, normalize=False) # Batch/number bilder im Raster
                 writer.add_image('Denoised Images', grid, global_step=epoch * len(dataLoader) + batch_idx)
                 #show_tensor_as_picture(denoised)
-
+            
     print("epochs last psnr: ", psnr_log[-1])
     print("epochs last sim: ", sim_log[-1])
     
@@ -220,11 +139,10 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
 def main(argv):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     #device = "cuda:3"
-    methoden_liste = ["n2void", "n2n_orig", "score_ar tweedie", "n2self", "n2same", "n2void"]
-    methoden_liste = ["score_ar tweedie"]
-    #methode = methoden_liste[5]
+
+    methoden_liste = ["score_ar tweedie norm", "score tweedie norm", "score_ar tweedie", "score tweedie", "score_ar tweedie range", "score tweedie range"]
+
     
-    #run = wandb.init(entity="", project="my-project-name", anonymous="allow")
     layout = {
         "Training vs Validation": {
             "loss": ["Multiline", ["loss/train", "loss/validation"]],
@@ -236,20 +154,18 @@ def main(argv):
     #writer = None
     sigma=0.4
 
-    celeba_dir = 'dataset/celeba_dataset'
-
-
-    mean_training = torch.tensor([ 0.0010, -0.0023, -0.0040])
-    std_training =  torch.tensor([0.0112, 0.0104, 0.0103])
-    
+    celeba_dir = 'dataset/celeba_dataset'    
 
     transform_noise = transforms.Compose([
         transforms.RandomResizedCrop((128,128)),
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.float()),
         transforms.Lambda(lambda x:  x * 2 -1), #[-1,1]
-        #transforms.Lambda(lambda x: x + torch.randn_like(x) * sigma),  #Rauschen
-        #transforms.Normalize(mean=mean_training, std=std_training), #Normaalisieren
+        ])
+    transform_noise2 = transforms.Compose([
+        transforms.RandomResizedCrop((128,128)),
+        transforms.ToTensor(),
+        transforms.Lambda(lambda x: x.float()),
         ])
     print("lade Datensätze")
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise)
@@ -258,18 +174,20 @@ def main(argv):
 
     dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=False, transform=transform_noise)
     dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(640)))
-    
 
-    #mask = Mask.cut2self_mask((128,128), 64).to(device)
 
     
     print(f"Using {device} device")
     #run.watch(model)
     
     for methode in methoden_liste:
-        if methode == "n2void":
-            dataset = torch.utils.data.Subset(dataset, list(range(1056)))
-            dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(128)))
+
+        if "range" in methode:
+            dataset = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise2)
+            dataset = torch.utils.data.Subset(dataset, list(range(6400)))
+            dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=False, transform=transform_noise2)
+            dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(640)))
+        
         dataLoader = DataLoader(dataset, batch_size=32, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=32, shuffle=True)
         model = N2N_Orig_Unet(3,3).to(device)
@@ -302,11 +220,10 @@ def main(argv):
                 if round(max(psnr),1) > bestPsnr:
                     bestPsnr = round(max(psnr),1)
                 model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
-                torch.save(model.state_dict(), model_save_path)
             print("Epochs highest PSNR: ", high_psnr)
             print("Epochs highest Sim: ", high_sim)
             
-            """
+            
             #if epoch%10 == 0 or epoch == max_Epochs:
             loss_val, psnr_val, similarity_val, bestPsnr_val, psnr_orig_val = train(model, optimizer, device, dataLoader_validate, methode, sigma=sigma, mode="validate",
                                         store=store_path, epoch=epoch, bestPsnr=bestPsnr_val, writer = writer, min_value=-3.2, max_value=3.15, min_value2=-5.4, max_value2=5.32)
@@ -331,17 +248,12 @@ def main(argv):
             writer.add_scalar("PSNR/validation", Metric.avg_list(psnr_val), epoch)
             writer.add_scalar("sim/validation", Metric.avg_list(similarity), epoch)
             writer.add_scalar("sim/validation", Metric.avg_list(similarity_val), epoch)
-            """
 
-        
+            print("Best PSNR: ", bestPsnr)
+            print("Best Val_PSNR: ", bestPsnr_val)
+            print()
+            
 
-    #show_logs(loss, psnr, value_loss, value_psnr, similarity)
-
-
-
-    print(loss)
-    print(psnr)
-    print(similarity)
     #show_pictures_from_dataset(dataset, model)
     writer.close()
     print("fertig\n")
