@@ -25,12 +25,11 @@ class Mask:
 
 
 
-    def n2self_mask(noise_image, i, grid_size=3, mode='interpolate'):
+    def n2self_mask(noise_image, i, grid_size=3, mode='interpolate'):       #i= epoch % (width**2  -1)
         phasex = i % grid_size
         phasey = (i // grid_size) % grid_size
         mask = n2self_pixel_grid_mask(noise_image[0, 0].shape, grid_size, phasex, phasey)
         mask = mask.to(noise_image.device)
-        #mask_inv = torch.ones_like(mask) - mask
         mask_inv = 1 - mask
         if mode == 'interpolate':
             masked = n2self_interpolate_mask(noise_image, mask, mask_inv)
@@ -43,6 +42,10 @@ class Mask:
         #else:
         net_input = masked
         return net_input, mask
+    
+
+    def n2self_jinv_recon(noise_image, model):
+        return __n2self_jinv_recon(noise_image, model)
     
 
     def n2void_mask(image_shape, num_masked_pixels=8):
@@ -120,13 +123,12 @@ def n2self_interpolate_mask(tensor, mask, mask_inv):
     filtered_tensor = torch.nn.functional.conv2d(tensor, kernel, stride=1, padding=1)
     return filtered_tensor * mask + tensor * mask_inv #TODO:verschieben in mask
 
-#TODO: wann benutzen?
-def n2self_infer_full_image(noise_image, model, n_masks=3): #n_masks=grid_size
-    net_input, mask = Mask.n2self_mask(noise_image, 0)
-    net_output = model(net_input)
-    acc_tensor = torch.zeros(net_output.shape).cpu()
-    for i in range(n_masks):
-        net_input, mask = Mask.n2self_mask(noise_image, i)
+def __n2self_jinv_recon(noise_image, model): #infer_full_image in mask.py from n2Self
+        net_input, mask = Mask.n2self_mask(noise_image, 0)
         net_output = model(net_input)
-        acc_tensor = acc_tensor + (net_output * mask).cpu()
-    return acc_tensor
+        acc_tensor = torch.zeros(net_output.shape).cpu()
+        for i in range(noise_image.shape[2]**2):
+            net_input, mask = Mask.n2self_mask(noise_image, i)
+            net_output = model(net_input)
+            acc_tensor = acc_tensor + (net_output * mask).cpu()
+        return acc_tensor

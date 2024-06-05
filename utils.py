@@ -8,6 +8,11 @@ import shutil
 import torch
 
 
+def add_gaus_noise(image, mean, sigma):
+    noise = torch.randn_like(image) * sigma + mean
+    noisy_image = image + noise
+    noisy_image = torch.clamp(noisy_image, 0, 1)
+    return noisy_image
 
 def show_pictures_from_dataset (dataset, model=None, generation=0):
     if model:
@@ -139,9 +144,30 @@ def normalize_image(image):
         exit(32)
 
 def add_norm_noise(original, sigma, min_value, max_value, a, b, norm=True):
-
+    """
+    Args:
+        original (torch.Tensor): Der Eingabetensor (b, c, w, h).
+        sigma (float): DIE gewünschte Rausch-Stärke als std
+        min_value: min Wert vom Datasatz
+        max_value: max Wert vom Datasatz
+        a: gewünschte Untergrenze vom Batch der Normalisierung
+        b: gewünschte Obergrenze vom Batch der Normalisierung
+        norm: True
+    """
     noise = original + torch.randn_like(original) * sigma
     if norm:
         noise = (noise-min_value) / (max_value-min_value) * (b-a)+a
     return noise
 
+def add_noise_snr(x, snr_db):
+    """
+    Args:
+        input_tensor (torch.Tensor): Der Eingabetensor (b, c, w, h).
+        snr_db (float): Das gewünschte Signal-Rausch-Verhältnis in Dezibel (dB).
+    """
+    noise = torch.randn_like(x)
+    signal_power = torch.mean(x**2)
+    snr_linear = 10 ** (snr_db / 10.0)
+    noise_power = signal_power / snr_linear
+    noise = x + noise * torch.sqrt(noise_power)
+    return noise
