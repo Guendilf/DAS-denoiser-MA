@@ -29,7 +29,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 max_Iteration = 2
-max_Epochs = 1
+max_Epochs = 50
 
 
 
@@ -51,7 +51,8 @@ LOSS FUNKTIONS  +  EVALUATION FUNKTIONS
 def loss_n2noise(original, noise_images, sigma, device, model, min_value, max_value, a=-1, b=1):
     #src1 = add_gaus_noise(original, 0.5, sigma).to(device)
     #schöner 1 Zeiler:
-    noise_image2 = add_norm_noise(original, sigma+0.3, min_value, max_value, a=-1, b=1)
+    #noise_image2 = add_norm_noise(original, sigma+0.3, min_value, max_value, a=-1, b=1)
+    noise_image2 = add_noise_snr(original, snr_db=sigma+2)
     noise_image2 = noise_image2.to(device) #+ mean
     # Denoise image
     denoised = model(noise_images)
@@ -115,7 +116,7 @@ def calculate_loss(model, device, dataLoader, methode, sigma, min_value2, max_va
         #tweedie - funktion for Gaus
         denoised = noise_images + sigma**2*denoised
 
-    elif methode == "n2self":
+    elif "n2self" in methode:
         loss, denoised, masked_noise_image = loss_n2self(noise_images, batch_idx, model)
 
     elif methode == "n2void":
@@ -143,7 +144,7 @@ def calculate_loss(model, device, dataLoader, methode, sigma, min_value2, max_va
 TRAIN FUNKTIONS
 """
 
-def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epoch, bestPsnr, writer, min_value, max_value, min_value2, max_value2):
+def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epoch, bestPsnr, writer, min_value, max_value, min_value2, max_value2, save_model):
     #mit lossfunktion aus "N2N(noiseToNoise)"
     #kabel ist gesplitet und ein Teil (src) wird im Model behandelt und der andere (target) soll verglichen werden
     loss_log = []
@@ -155,7 +156,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
     for batch_idx, (original, label) in enumerate(tqdm(dataLoader)):
         original = original.to(device)
         #noise_images = add_norm_noise(original, sigma, min_value, max_value, a=-1, b=1)
-        noise_images = add_noise_snr(original, snr_db=2)
+        noise_images = add_noise_snr(original, snr_db=sigma)
         noise_images = noise_images.to(device)
         #get specific values for training and validation
         if mode=="test" or mode =="validate":
@@ -166,7 +167,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                     denoised = model (noise_images)            
                 elif methode == "n2score":
                     denoised = noise_images + sigma**2 * model(noise_images)
-                elif methode == "n2self":
+                elif "n2self" in methode:
                     if "j-invariant" in methode:
                         denoised = Mask.n2self_jinv_recon(noise_images, model)
                     else:
@@ -201,13 +202,17 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         psnr_orig_log.append(psnr_original.item())
         psnr_log.append(psnr_batch.item())
         sim_log.append(similarity_batch)
-        if round(psnr_batch.item(),1) > bestPsnr or batch_idx == len(dataLoader)-1:# or similarity_batch > bestSim:
+        if round(psnr_batch.item(),1) > bestPsnr + 0.5 or batch_idx == len(dataLoader)-1:# or similarity_batch > bestSim:
             if round(psnr_batch.item(),1) > bestPsnr:
                 bestSim = similarity_batch
                 bestPsnr = round(psnr_batch.item(),1)
                 print(f"best model found with psnr: {bestPsnr}")
                 model_save_path = os.path.join(store, "models", f"{round(bestPsnr, 1)}-{mode}-{epoch}-{batch_idx}.pth")
-                torch.save(model.state_dict(), model_save_path)
+                if save_model:
+                    torch.save(model.state_dict(), model_save_path)
+                else:
+                    f = open(model_save_path, "x")
+                    f.close()
                 #print(f"saved new best model at path {model_save_path}")
             if methode == "n2void" and mode == "train":
                 batch = original.shape[0]
@@ -233,8 +238,9 @@ def main(argv):
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
         device = "cuda:3"
-    methoden_liste = ["n2noise", "n2score", "n2self", "n2same", "n2void"]
-    #methode = methoden_liste[5]
+    methoden_liste = ["n2noise", "n2score", "n2self", "n2self j-invariant", "n2same", "n2void"]
+    #methode = methoden_liste[3]
+    #methoden_liste = ["n2self j-invariant"]
     
     #run = wandb.init(entity="", project="my-project-name", anonymous="allow")
     layout = {
@@ -245,12 +251,12 @@ def main(argv):
         },
     }
     #writer = None
-    sigma=0.4
+    sigma = 0.4
+    sigma = 2
+    save_model = False #save models as pth
 
     celeba_dir = 'dataset/celeba_dataset'
 
-    mean_training = torch.tensor([ 0.0010, -0.0023, -0.0040])
-    std_training =  torch.tensor([0.0112, 0.0104, 0.0103])
     
     transform_noise = transforms.Compose([
         transforms.RandomResizedCrop((128,128)),
@@ -288,8 +294,10 @@ def main(argv):
         writer.add_custom_scalars(layout)
 
         for epoch in tqdm(range(max_Epochs)):
+            
             loss, psnr, similarity, bestPsnr, psnr_orig = train(model, optimizer, device, dataLoader, methode, sigma=sigma, mode="train", 
-                                        store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer, min_value=-3.25, max_value=3.25, min_value2=-5.67, max_value2=5.83)
+                                        store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer, min_value=-3.25, max_value=3.25, 
+                                        min_value2=-5.67, max_value2=5.83, save_model=save_model)
             
             for i, loss_item in enumerate(loss):
                 writer.add_scalar('Train Loss', loss_item, epoch * len(dataLoader) + i)
@@ -305,16 +313,28 @@ def main(argv):
                 if round(max(psnr),1) > bestPsnr:
                     bestPsnr = round(max(psnr),1)
                 model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
-                torch.save(model.state_dict(), model_save_path)
+                if save_model:
+                    torch.save(model.state_dict(), model_save_path)
+                else:
+                    f = open(model_save_path, "x")
+                    f.close()
+            if bestPsnr < psnr[-1]:
+                model_save_path = os.path.join(store_path, "models", f"{round(bestPsnr, 1)}-train-{epoch}-last.pth")
+                if save_model:
+                    torch.save(model.state_dict(), model_save_path)
+                else:
+                    f = open(model_save_path, "x")
+                    f.close()
             print("Epochs highest PSNR: ", high_psnr)
             print("Epochs highest Sim: ", high_sim)
             
             if torch.cuda.device_count() == 1:
                 continue
             
+            
             #runing on Server
             loss_val, psnr_val, similarity_val, bestPsnr_val, psnr_orig_val = train(model, optimizer, device, dataLoader_validate, methode, sigma=sigma, mode="validate",
-                                        store=store_path, epoch=epoch, bestPsnr=bestPsnr_val, writer = writer, min_value=-3.2, max_value=3.15, min_value2=-5.4, max_value2=5.32)
+                                        store=store_path, epoch=epoch, bestPsnr=bestPsnr_val, writer = writer, min_value=-3.2, max_value=3.15, min_value2=-5.4, max_value2=5.32, save_model=save_model)
             high_psnr = -100
             high_sim = -100
             for i, loss_item in enumerate(loss_val):

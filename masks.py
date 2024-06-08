@@ -3,8 +3,8 @@ import numpy as np
 
 
 class Mask:
-    def cut2self_mask(image_size, batch_size, mask_size=(4, 4), mask_percentage=0.003): #TODO: random maskieren
-        total_area = image_size[0] * image_size[1]
+    def cut2self_mask(image_size, batch_size, mask_size=(4, 4), mask_percentage=0.003, corrected=0): #TODO: random maskieren
+        total_area = image_size[0] * image_size[1]  #w*h
         
         # Berechnen Fläche jedes Quadrats in der Maske
         mask_area = mask_size[0] * mask_size[1]
@@ -20,8 +20,15 @@ class Mask:
                 y = torch.randint(0, image_size[1] - mask_size[1] + 1, (1,))
                 mask[x:x+mask_size[0], y:y+mask_size[1]] = 1
             masks.append(mask)
+        
+        mask = torch.stack(masks, dim=0)
+        #check if j-invariant (no region is overlapping in all batchhes)
+        if mask.sum().item() != num_regions*mask_area*batch_size:
+            if corrected==5:
+                raise Exception(f"Es wurden {corrected+1} mal  keine j-invariant Masken erzeugt. Es werden {num_regions} Regionen die {mask_area} Pixel groß sind erstellt und diese müssen in {batch_size} Batches eindeutig sein.")
+            mask = Mask.cut2self_mask(image_size, batch_size, mask_size, mask_percentage, corrected=corrected+1)
 
-        return torch.stack(masks, dim=0), num_regions
+        return mask, num_regions
 
 
 
@@ -45,7 +52,7 @@ class Mask:
     
 
     def n2self_jinv_recon(noise_image, model):
-        return __n2self_jinv_recon(noise_image, model)
+        return jinv_recon(noise_image, model)
     
 
     def n2void_mask(image_shape, num_masked_pixels=8):
@@ -123,12 +130,13 @@ def n2self_interpolate_mask(tensor, mask, mask_inv):
     filtered_tensor = torch.nn.functional.conv2d(tensor, kernel, stride=1, padding=1)
     return filtered_tensor * mask + tensor * mask_inv #TODO:verschieben in mask
 
-def __n2self_jinv_recon(noise_image, model): #infer_full_image in mask.py from n2Self
-        net_input, mask = Mask.n2self_mask(noise_image, 0)
+def jinv_recon(noise_image, model): #infer_full_image in mask.py from n2Self
+        grid_size=3 #gleicher wert wie in "Mask.n2self_mask" beim ttraining
+        net_input, mask = Mask.n2self_mask(noise_image, 0, mode = 'zero')
         net_output = model(net_input)
-        acc_tensor = torch.zeros(net_output.shape).cpu()
-        for i in range(noise_image.shape[2]**2):
-            net_input, mask = Mask.n2self_mask(noise_image, i)
+        acc_tensor = torch.zeros(net_output.shape).to(noise_image.device)
+        for i in range(grid_size**2):
+            net_input, mask = Mask.n2self_mask(noise_image, i, mode = 'zero')
             net_output = model(net_input)
-            acc_tensor = acc_tensor + (net_output * mask).cpu()
+            acc_tensor = acc_tensor + (net_output * mask).to(noise_image.device)
         return acc_tensor

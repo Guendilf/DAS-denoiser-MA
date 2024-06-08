@@ -156,7 +156,8 @@ def add_norm_noise(original, sigma, min_value, max_value, a, b, norm=True):
     """
     noise = original + torch.randn_like(original) * sigma
     if norm:
-        noise = (noise-min_value) / (max_value-min_value) * (b-a)+a
+        #noise = (noise-min_value) / (max_value-min_value) * (b-a)+a
+        noise = ((noise-noise.min()) / (noise.max()-noise.min())) * (b-a)+a
     return noise
 
 def add_noise_snr(x, snr_db):
