@@ -7,7 +7,7 @@ def n2noise(original, noise_images, sigma, device, model, min_value, max_value, 
     #src1 = add_gaus_noise(original, 0.5, sigma).to(device)
     #schöner 1 Zeiler:
     #noise_image2 = add_norm_noise(original, sigma+0.3, min_value, max_value, a=-1, b=1)
-    noise_image2 = add_noise_snr(original, snr_db=sigma+2)
+    noise_image2, alpha = add_noise_snr(original, snr_db=sigma+2)
     noise_image2 = noise_image2.to(device) #+ mean
     # Denoise image
     denoised = model(noise_images)
