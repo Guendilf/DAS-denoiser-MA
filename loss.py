@@ -69,7 +69,7 @@ def calculate_loss(model, device, dataLoader, methode, sigma, min_value2, max_va
     if methode == "n2noise":
         loss, denoised, noise_image2 = n2noise(original, noise_images, sigma, device, model, min_value2, max_value2)
     elif methode == "n2score":
-        loss, denoised = n2score(noise_images, sigma_min=1, sigma_max=30, q=batch_idx/len(dataLoader), 
+        loss, denoised = n2score(noise_images, sigma_min=0.01, sigma_max=0.3, q=batch_idx/len(dataLoader), 
                                                         device=device, model=model, methode=methode)
         #tweedie - funktion for Gaus
         denoised = noise_images + sigma**2*denoised

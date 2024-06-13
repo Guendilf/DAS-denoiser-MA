@@ -129,9 +129,12 @@ def show_tensor_as_picture(img):
     img = img.cpu().detach()
     if len(img.shape)==4:
         img = img[0]
-    if img.shape[0] == 3:
+    if img.shape[0] == 3 or img.shape[0] == 1:
         img = img.permute(1,2,0)
-    plt.imshow(img, interpolation='nearest')
+    if img.shape[0] == 1:
+        plt.imshow(img, cmap='gray', interpolation='nearest')
+    else:
+        plt.imshow(img, interpolation='nearest')
     plt.show()
 
 def normalize_image(image):
@@ -143,7 +146,7 @@ def normalize_image(image):
         print("kann nicht normalisieren, da kein Tensor")
         exit(32)
 
-def add_norm_noise(original, sigma, min_value, max_value, a, b, norm=True):
+def add_norm_noise(original, sigma, a=0, b=1, norm=True):
     """
     Args:
         original (torch.Tensor): Der Eingabetensor (b, c, w, h).
@@ -165,10 +168,15 @@ def add_noise_snr(x, snr_db):
     Args:
         input_tensor (torch.Tensor): Der Eingabetensor (b, c, w, h).
         snr_db (float): Das gewünschte Signal-Rausch-Verhältnis in Dezibel (dB).
+    Return:
+        noise image: tensor of x + noise
+        alpha: skaling faktor for noise - also interpreted as sigma
     """
     noise = torch.randn_like(x)
-    signal_power = torch.mean(x**2)
     snr_linear = 10 ** (snr_db / 10.0)
-    noise_power = signal_power / snr_linear
-    noise = x + noise * torch.sqrt(noise_power)
-    return noise
+    snr_linear = snr_db
+    Es = torch.sum(x**2)
+    En = torch.sum(noise**2)
+    alpha = torch.sqrt(Es/(snr_linear*En))
+    noise = x + noise * alpha
+    return noise, alpha.item()

@@ -1,14 +1,19 @@
 from skimage.metrics import structural_similarity as sim
 import statistics
+import numpy as np
 import torch
 import torch.nn.functional as F
 
 class Metric:
-    def calculate_psnr(original, reconstructed):
-        mse = torch.mean((original - reconstructed) ** 2)
+    def calculate_psnr(x,y):
         max_intensity = 1.0  # weil Vild [0, 1]
-
-        psnr = 10 * torch.log10((max_intensity ** 2) / mse) #mit epsilon weil mse gegen 0 gehen kann
+        if torch.is_tensor(x):
+            if torch.is_tensor(y):
+                mse = torch.mean((x-y)**2)
+                psnr = 10 * torch.log10((max_intensity ** 2) / mse)
+        else:
+            mse = np.mean((x-y)**2)
+            psnr = 10 * np.log10((max_intensity ** 2) / mse)
         return psnr
 
     def calculate_similarity(image1, image2):
@@ -17,6 +22,23 @@ class Metric:
         image_range = image1.max() - image1.min()
         similarity_index, diff_image = sim(image1, image2, data_range=image_range, channel_axis=1, full=True)
         return similarity_index, diff_image
+    
+    def tv_norm(x):
+        """
+        Args:
+            x: torch tensor to calculate its total variation
+        Return:
+            avarge total variation (avarge tv for eevery pixel)
+        """
+        h_diff = x[:, :, 1:, :] - x[:, :, :-1, :]
+        w_diff = x[:, :, :, 1:] - x[:, :, :, :-1]
+
+        h_diff_abs = torch.abs(h_diff)
+        w_diff_abs = torch.abs(w_diff)
+
+        tv_norm = torch.sum(h_diff_abs) + torch.sum(w_diff_abs)
+        #durchschnitt bilden
+        return tv_norm / (np.prod(x.shape))
     
 
 

@@ -29,9 +29,21 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 max_Iteration = 2
-max_Epochs = 30
+max_Epochs = 20
 
-
+def evaluateSigma(noise_image, vector):
+    sigmas = torch.linspace(0.1, 0.7, 61)
+    quality_metric = []
+    for sigma in sigmas:
+        
+        simple_out = noise_image + sigma**2 * vector.detach()
+        simple_out = (simple_out + 1) / 2
+        quality_metric += [Metric.tv_norm(simple_out).item()]
+    
+    sigmas = sigmas.numpy()
+    quality_metric = np.array(quality_metric)
+    best_idx = np.argmin(quality_metric)
+    return quality_metric[best_idx], sigmas[best_idx]
 """
 TRAIN FUNKTIONS
 """
@@ -43,13 +55,16 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
     psnr_log = []
     sim_log = []
     psnr_orig_log = []
+    best_sigmas = []    #only for Score in validation + test
+    all_tvs = []     #only for Score in validation + test
     bestPsnr = bestPsnr
     bestSim = -1
     for batch_idx, (original, label) in enumerate(tqdm(dataLoader)):
         original = original.to(device)
         batch = original.shape[0]
         #noise_images = add_norm_noise(original, sigma, min_value, max_value, a=-1, b=1)
-        noise_images = add_noise_snr(original, snr_db=sigma)
+        noise_images, alpha = add_noise_snr(original, snr_db=sigma)
+        sigma = alpha
         noise_images = noise_images.to(device)
         #get specific values for training and validation
         if mode=="test" or mode =="validate":
@@ -59,7 +74,11 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                 if methode == "n2noise":
                     denoised = model (noise_images)            
                 elif methode == "n2score":
-                    denoised = noise_images + sigma**2 * model(noise_images)
+                    vector =  model(noise_images)
+                    best_tv, best_sigma = evaluateSigma(noise_images, vector)
+                    best_sigmas.append(best_sigma)
+                    all_tvs.append(best_tv)
+                    denoised = noise_images + best_sigma**2 * vector
                 elif "n2self" in methode:
                     if "j-invariant" in methode:
                         denoised = Mask.n2self_jinv_recon(noise_images, model)
@@ -77,6 +96,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         else:
             model.train()
             #original, noise_images are only important if n2void
+            original_void = original
             loss, denoised, original, noise_images = calculate_loss(model, device, dataLoader, methode, sigma, min_value2, max_value2, batch_idx, original, noise_images)
             optimizer.zero_grad()
             loss.backward()
@@ -107,6 +127,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                     f = open(model_save_path, "x")
                     f.close()
             if methode == "n2void" and mode == "train":
+                original = original_void
                 skip = int(denoised.shape[0] / batch) #64=ursprüngllichhe Batchgröße
                 denoised = denoised[::skip] # zeige nur jedes 6. Bild an (im path wird aus einem bild 6 wenn die Batchhgröße = 64)
             #grid = make_grid(denoised, nrow=16, normalize=False) # Batch/number bilder im Raster
@@ -116,6 +137,12 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                 writer.add_image('Denoised Images Training', grid, global_step=epoch * len(dataLoader) + batch_idx)
             else:
                 writer.add_image('Denoised Images Validation', grid, global_step=epoch * len(dataLoader) + batch_idx)
+    """
+    if (mode=="test" or mode =="validate") and (methode == "n2score"):
+        for i in range(len(best_tv)):
+            writer.add_scalar('Validation sigma', best_sigmas[i], epoch * len(dataLoader) + i)
+            writer.add_scalar('Validation tv', best_tv[i], epoch * len(dataLoader) + i)
+    """
     
     return loss_log, psnr_log, sim_log, bestPsnr, psnr_orig_log
 
@@ -128,7 +155,7 @@ def main(argv):
     else:
         device = "cuda:3"
     methoden_liste = ["n2noise", "n2score", "n2self", "n2self j-invariant", "n2same", "n2void"]
-    methoden_liste = ["n2void"]
+    #methoden_liste = ["n2score"]
 
     layout = {
         "Training vs Validation": {
@@ -168,6 +195,7 @@ def main(argv):
         dataLoader_validate = DataLoader(dataset_validate, batch_size=32, shuffle=False)
         if torch.cuda.device_count() == 1:
             model = N2N_Orig_Unet(3,3).to(device)
+            #model = U_Net().to(device)
         else:
             #model = TestNet(3,3).to(device)
             model = U_Net().to(device)
