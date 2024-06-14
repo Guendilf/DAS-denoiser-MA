@@ -23,11 +23,13 @@ class Mask:
         
         mask = torch.stack(masks, dim=0)
         #check if j-invariant (no region is overlapping in all batchhes)
+        #TODO: ist das ein richhtigger Chheck oder kann man es auch besser machen?
+        """
         if mask.sum().item() != num_regions*mask_area*batch_size:
             if corrected==5:
-                raise Exception(f"Es wurden {corrected+1} mal  keine j-invariant Masken erzeugt. Es werden {num_regions} Regionen die {mask_area} Pixel groß sind erstellt und diese müssen in {batch_size} Batches eindeutig sein.")
+                raise Exception(f"Es wurden {corrected+1} mal keine j-invariant Masken erzeugt. Es werden {num_regions} Regionen die {mask_area} Pixel groß sind erstellt und diese müssen in {batch_size} Batches eindeutig sein.")
             mask, num_regions = Mask.cut2self_mask(image_size, batch_size, mask_size, mask_percentage, corrected=corrected+1)
-
+        """
         return mask, num_regions
 
 

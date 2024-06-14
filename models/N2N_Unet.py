@@ -288,48 +288,32 @@ class U_Net_origi(nn.Module):
 
 #angepasst an 128x128 bilder
 class U_Net(nn.Module):
-    def __init__(self, in_chanel = 3):
+    def __init__(self, in_chanel = 3, batchNorm = False):
         super(U_Net, self).__init__()
 
-        self.encoder1 = nn.Sequential(
-            nn.Conv2d(in_chanel, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.ReLU(), 
-        )
+        self.encoder1 = doubleConv(in_chanel, 64, batchNorm)
+        
         self.encoder2 = nn.Sequential(
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1),
-            nn.ReLU(),
+            doubleConv(64, 128, batchNorm),
         )
         self.encoder3 = nn.Sequential(
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.ReLU(),
+            doubleConv(128, 256, batchNorm),
         )
         self.encoder4 = nn.Sequential(
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(256, 512, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(512, 512, kernel_size=3, padding=1),
-            nn.ReLU(),
+            doubleConv(256, 512, batchNorm),
         )
         self.encoder5 = nn.Sequential(
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(512, 1024, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(1024, 1024, kernel_size=3, padding=1),
-            nn.ReLU(),
+            doubleConv(512, 1024, batchNorm),
         )
 
-        self.decoder1 = Up(1024, 512)
-        self.decoder2 = Up(512, 256)
-        self.decoder3 = Up(256, 128)
-        self.decoder4 = Up(128,64)
+        self.decoder1 = Up(1024, 512, batchNorm)
+        self.decoder2 = Up(512, 256, batchNorm)
+        self.decoder3 = Up(256, 128, batchNorm)
+        self.decoder4 = Up(128,64, batchNorm)
         self.final_conv = nn.Conv2d(64, in_chanel, kernel_size=1)
         self.apply(layer_init)
 
@@ -353,22 +337,39 @@ class U_Net(nn.Module):
 class Up(nn.Module):
     """Upscaling then double conv"""
 
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_chanel, out_chanel, batchNorm):
         super().__init__()
 
-        self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
+        self.up = nn.ConvTranspose2d(in_chanel, in_chanel // 2, kernel_size=2, stride=2)
+        self.conv = doubleConv(in_chanel, out_chanel, batchNorm)
         self.apply(layer_init)
 
     def forward(self, x1, x2):
         x = self.up(x1)
         x = torch.cat((x, x2), dim=1)
         return self.conv(x)
+    
+class doubleConv(nn.Module):
+    """
+    conv(3x3) -> Batchnorm? -> Relu -> conv(3x3) - Batchnorm? -> Relu
+    """
+    def __init__(self, in_channels, out_channels, norm=False):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.normLayer1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.normLayer2 = nn.BatchNorm2d(out_channels)
+        self.norm = norm
+        self.apply(layer_init)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        if self.norm:
+            x = self.normLayer1(x)
+        x = self.conv2(nn.functional.relu(x))
+        if self.norm:
+            x = self.normLayer2(x)
+        return nn.ReLU(x)
 
 
 

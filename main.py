@@ -154,8 +154,8 @@ def main(argv):
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
         device = "cuda:3"
-    methoden_liste = ["n2noise", "n2score", "n2self", "n2self j-invariant", "n2same", "n2void"]
-    #methoden_liste = ["n2score"]
+    methoden_liste = ["n2noise", "n2score", "n2self", "n2self j-invariant", "n2same", "n2same batch", "n2void"]
+    #methoden_liste = ["n2void"]
 
     layout = {
         "Training vs Validation": {
@@ -198,7 +198,10 @@ def main(argv):
             #model = U_Net().to(device)
         else:
             #model = TestNet(3,3).to(device)
-            model = U_Net().to(device)
+            if methode == "n2score" or "batch" in methode:
+                model = U_Net(batchNorm=True).to(device)
+            else:
+                model = U_Net().to(device)
             #model = Cut2Self(mask).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
         bestPsnr = -100

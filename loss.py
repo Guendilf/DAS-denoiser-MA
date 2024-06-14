@@ -43,10 +43,10 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
     return loss_function(denoised_pixel, target_pixel), denoised, patches, clean_patches
 
 def n2same(noise_images, device, model, lambda_inv=2):
-    mask, marked_points = Mask.cut2self_mask((noise_images.shape[2],noise_images.shape[3]), noise_images.shape[0], mask_size=(1, 1), mask_percentage=0.0005) #0,5% Piel maskieren
+    mask, marked_points = Mask.cut2self_mask((noise_images.shape[2],noise_images.shape[3]), noise_images.shape[0], mask_size=(1, 1), mask_percentage=0.005) #0,5% Piel maskieren
     mask = mask.to(device)
     mask = mask.unsqueeze(1)  # (b, 1, w, h)
-    mask = mask.expand(-1, 3, -1, -1) # (b, 3, w, h)
+    mask = mask.expand(-1, noise_images.shape[1], -1, -1) # (b, 3, w, h)
     masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
     denoised = model(noise_images)
     denoised_mask = model(masked_input)
