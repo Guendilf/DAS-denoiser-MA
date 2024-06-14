@@ -369,7 +369,7 @@ class doubleConv(nn.Module):
         x = self.conv2(nn.functional.relu(x))
         if self.norm:
             x = self.normLayer2(x)
-        return nn.ReLU(x)
+        return nn.functional.relu(x)
 
 
 
