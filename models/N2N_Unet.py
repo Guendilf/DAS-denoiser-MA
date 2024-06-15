@@ -288,9 +288,16 @@ class U_Net_origi(nn.Module):
 
 #angepasst an 128x128 bilder
 class U_Net(nn.Module):
-    def __init__(self, in_chanel = 3, batchNorm = False):
+    def __init__(self, in_chanel = 3, batchNorm=False, skipLast=True):
+        """
+        Args:
+            in_chanel: Input chanels, default = 3
+            batchhNorm: activate batchnorm in doubleConv-Layer, default = False
+            skipLast: should the last skip connection (in the boottom of thhe U-Net pictre) be active, default = True
+        """
         super(U_Net, self).__init__()
-
+        
+        self.skipLast = skipLast
         self.encoder1 = doubleConv(in_chanel, 64, batchNorm)
         
         self.encoder2 = nn.Sequential(
@@ -310,7 +317,7 @@ class U_Net(nn.Module):
             doubleConv(512, 1024, batchNorm),
         )
 
-        self.decoder1 = Up(1024, 512, batchNorm)
+        self.decoder1 = Up(1024, 512, batchNorm, skip=self.skipLast)
         self.decoder2 = Up(512, 256, batchNorm)
         self.decoder3 = Up(256, 128, batchNorm)
         self.decoder4 = Up(128,64, batchNorm)
@@ -326,7 +333,10 @@ class U_Net(nn.Module):
         result = self.encoder5(skip4)  # (N, 1024, 8, 8)
 
         # Decoder with Skip Connections
-        result = self.decoder1(result, skip4) # (N, 512, 16, 16)
+        if self.skipLast:
+            result = self.decoder1(result, skip4) # (N, 512, 16, 16  
+        else:
+            result = self.decoder1(result) # (N, 512, 16, 16)
         result = self.decoder2(result, skip3)  # (N, 256, 32, 32)
         result = self.decoder3(result, skip2)  # (N, 128, 64, 64)
         result = self.decoder4(result, skip1)  # (N, 64, 128, 128)
@@ -337,16 +347,20 @@ class U_Net(nn.Module):
 class Up(nn.Module):
     """Upscaling then double conv"""
 
-    def __init__(self, in_chanel, out_chanel, batchNorm):
+    def __init__(self, in_channel, out_channel, batchNorm, skipConnection=True):
         super().__init__()
 
-        self.up = nn.ConvTranspose2d(in_chanel, in_chanel // 2, kernel_size=2, stride=2)
-        self.conv = doubleConv(in_chanel, out_chanel, batchNorm)
+        self.up = nn.ConvTranspose2d(in_channel, in_channel // 2, kernel_size=2, stride=2)
+        if skipConnection == True:
+            self.conv = doubleConv(in_channel, out_channel, batchNorm)
+        else: 
+            self.conv = doubleConv(in_channel//2, out_channel, batchNorm)
         self.apply(layer_init)
 
-    def forward(self, x1, x2):
+    def forward(self, x1, x2=None):
         x = self.up(x1)
-        x = torch.cat((x, x2), dim=1)
+        if x2 is not None:  # skip konnection (immer auser bei N2Same)
+            x = torch.cat((x, x2), dim=1)
         return self.conv(x)
     
 class doubleConv(nn.Module):

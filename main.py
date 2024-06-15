@@ -84,7 +84,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                         denoised = Mask.n2self_jinv_recon(noise_images, model)
                     else:
                         denoised = model(noise_images)
-                elif methode == "n2void" or methode == "n2same":
+                elif methode == "n2void" or "n2same" in methode:
                     #calculate mean and std for each Image in batch in every chanal
                     mean = noise_images.mean(dim=[0,2,3])
                     std = noise_images.std(dim=[0,2,3])
@@ -173,7 +173,8 @@ def main(argv):
 
     
     transform_noise = transforms.Compose([
-        transforms.RandomResizedCrop((128,128)),
+        #transforms.RandomResizedCrop((128,128)),
+        transforms.CenterCrop((128,128)),
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.float()),
         transforms.Lambda(lambda x:  x * 2 -1),

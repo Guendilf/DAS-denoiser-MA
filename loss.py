@@ -89,7 +89,7 @@ def calculate_loss(model, device, dataLoader, methode, sigma, min_value2, max_va
         loss, denoised, patches, original_patches = n2void(original, noise_images, model, device, num_patches_per_img=None, windowsize=5, num_masked_pixels=8)
         noise_images = patches
         original = original_patches
-    elif methode == "n2same":
+    elif "n2same"  in methode:
         #normalise Data as in github
         mean_noise = noise_images.mean(dim=[0,2,3])
         std_noise = noise_images.std(dim=[0,2,3])
