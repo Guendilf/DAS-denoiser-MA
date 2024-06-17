@@ -57,23 +57,24 @@ class Mask:
         return jinv_recon(noise_image, model)
     
 
-    def n2void_mask(image_shape, num_masked_pixels=8):
+    def n2void_mask(image, num_masked_pixels=8):
         """
         uniform_pixel_selection_mask
         Erstellt eine Uniform Pixel Selection Maske.
         
-        image_shape (tuple): Die Form des Bildes (batch, channels, height, width).
+        image (tensor): extrahhier die Form des Bildes (batch, channels, height, width).
         num_masked_pixels (int): Die Anzahl der maskierten Pixel, die ausgewählt werden sollen.
         """
-        if len(image_shape)==3:
-            return select_random_pixels(image_shape, num_masked_pixels)
+        #if no batch
+        if len(image.shape)==3:
+            return select_random_pixels(image.shape, num_masked_pixels)
         else:
             mask_for_batch = []
-            for i in range(image_shape[0]):
-                mask_for_batch.append(select_random_pixels((image_shape[1],image_shape[2],image_shape[3]), num_masked_pixels))
+            for i in range(image.shape[0]):
+                mask_for_batch.append(select_random_pixels((image.shape[1],image.shape[2],image.shape[3]), num_masked_pixels))
             return torch.stack(mask_for_batch)
     
-    def exchange_in_mask_with_pixel_in_window(mask, data, windowsize, num_masked_pixels):
+    def exchange_in_mask_with_pixel_in_window(mask, data, windowsize, num_masked_pixels, replaceWithIself=False):
         """
         ersetzt die ausgewählten Pixel durch die Maske mit einem zufälligem Pixel in der Fenstergröße.
         Zentrum des Fensters ist das Pixel
@@ -82,23 +83,28 @@ class Mask:
         data (tensor): Das benutzte Bild für die ersetzung der Pixel (batch, channels, height, width)
         windowsize (int): Quadratische Fenstergröße meistens 5x5
         num_masked_pixels (int): Die Anzahl der maskierten Pixel, die ausgewählt werden sollen.
+        replaceWithIself (bool): is it possible to replalce tthe selectted Pixel with itself
         """
-        cords = torch.nonzero(mask)
-        bearbeittete_Bilder = data.clone()
+        cords = torch.nonzero(mask) #in jeder Zeile ist die Koordinate eines Wertes der nicht = 0 ist (also 1 z.b.)
+        bearbeitete_Bilder = data.clone()
         memory = []
-        for pixel_idx in range(cords.shape[0]): #cords.shape=(batch*num_mask_pixel*chanel, 4)
+        for pixel_idx in range(cords.shape[0]): #cords.shape=(batch*num_mask_pixel*chanel, 4)   geht alle gefundenen Koordinaten durch die nicht 0 sind in Maske
             batch, chanel, x, y = cords[pixel_idx]
             batch, chanel, x, y = batch.item(), chanel.item(), x.item(), y.item()
             if chanel != 0:
-                bearbeittete_Bilder[batch, chanel, x, y] = data[batch, chanel, memory[pixel_idx%num_masked_pixels][0], memory[pixel_idx%num_masked_pixels][1]]
-                if chanel==3 and (pixel_idx%num_masked_pixels)==(num_masked_pixels-1):
-                    memory = []
+                new_x, new_y = memory[pixel_idx % num_masked_pixels]
+                bearbeitete_Bilder[batch, chanel, x, y] = data[batch, chanel, new_x, new_y]
             else: 
-                new_x = max(0, min(bearbeittete_Bilder.shape[2] - 1, x + torch.randint(-windowsize//2, windowsize//2 + 1, (1,)).item()))
-                new_y = max(0, min(bearbeittete_Bilder.shape[2] - 1, y + torch.randint(-windowsize//2, windowsize//2 + 1, (1,)).item()))
+                while True: 
+                    #      max ( 0, min(width-1, x + rand(-window/2, window/2+1)) )
+                    new_x = max(0, min(bearbeitete_Bilder.shape[2] - 1, x + torch.randint(-windowsize//2, windowsize//2 + 1, (1,)).item()))
+                    new_y = max(0, min(bearbeitete_Bilder.shape[2] - 1, y + torch.randint(-windowsize//2, windowsize//2 + 1, (1,)).item()))
+                    #don't replace with the same pixel
+                    if (new_x, new_y) != (x,y) or replaceWithIself:
+                        break
                 memory.append((new_x, new_y))
-                bearbeittete_Bilder[batch, chanel, x, y] = data[batch, chanel, new_x, new_y]
-        return bearbeittete_Bilder
+                bearbeitete_Bilder[batch, chanel, x, y] = data[batch, chanel, new_x, new_y]
+        return bearbeitete_Bilder
         
 
     

@@ -32,7 +32,7 @@ def n2self(noise_image, batch_idx, model):
 
 def n2void(original_images, noise_images, model, device, num_patches_per_img, windowsize, num_masked_pixels):
     patches, clean_patches = generate_patches_from_list(noise_images, original_images, num_patches_per_img=num_patches_per_img)
-    mask  = Mask.n2void_mask(patches.shape, num_masked_pixels=8).to(device)
+    mask  = Mask.n2void_mask(patches, num_masked_pixels=8).to(device)
     masked_noise = Mask.exchange_in_mask_with_pixel_in_window(mask, patches, windowsize, num_masked_pixels)
     
     denoised = model(masked_noise)
@@ -40,6 +40,7 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
     target_pixel = patches * mask
     
     loss_function = torch.nn.MSELoss() #TODO: richtigge Loss, funktion?
+    loss = torch.mean((denoised_pixel - target_pixel)**2)
     return loss_function(denoised_pixel, target_pixel), denoised, patches, clean_patches
 
 def n2same(noise_images, device, model, lambda_inv=2):

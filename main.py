@@ -130,6 +130,8 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                 original = original_void
                 skip = int(denoised.shape[0] / batch) #64=ursprüngllichhe Batchgröße
                 denoised = denoised[::skip] # zeige nur jedes 6. Bild an (im path wird aus einem bild 6 wenn die Batchhgröße = 64)
+                original = original[::skip]
+                noise_images = noise_images[::skip]
             #grid = make_grid(denoised, nrow=16, normalize=False) # Batch/number bilder im Raster
             comparison = torch.cat((original[:4], denoised[:4], noise_images[:4]), dim=0)
             grid = make_grid(comparison, nrow=4, normalize=False).cpu()
@@ -143,7 +145,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
             writer.add_scalar('Validation sigma', best_sigmas[i], epoch * len(dataLoader) + i)
             writer.add_scalar('Validation tv', best_tv[i], epoch * len(dataLoader) + i)
     """
-    
+    show_tensor_as_picture
     return loss_log, psnr_log, sim_log, bestPsnr, psnr_orig_log
 
         
@@ -189,6 +191,7 @@ def main(argv):
     print(f"Using {device} device")
     
     for methode in methoden_liste:
+        print(methode)
         if methode == "n2void":
             dataset = torch.utils.data.Subset(dataset, list(range(1056)))
             dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(128)))
@@ -199,7 +202,7 @@ def main(argv):
             #model = U_Net().to(device)
         else:
             #model = TestNet(3,3).to(device)
-            if methode == "n2score" or "batch" in methode:
+            if methode == "n2score" or methode == "n2void" or "batch" in methode:
                 model = U_Net(batchNorm=True).to(device)
             else:
                 model = U_Net().to(device)
