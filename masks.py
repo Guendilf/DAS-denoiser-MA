@@ -132,9 +132,11 @@ def n2self_interpolate_mask(tensor, mask, mask_inv):
     device = tensor.device
     mask = mask.to(device)
     kernel = np.array([[0.5, 1.0, 0.5], [1.0, 0.0, 1.0], (0.5, 1.0, 0.5)])
-    kernel = np.repeat(kernel[np.newaxis, np.newaxis, :, :], repeats=3, axis=1) #repeat = 3 weil 3 Chanel im Bild
-    kernel = torch.Tensor(kernel).to(device)
+    #kernel = np.repeat(kernel[np.newaxis, np.newaxis, :, :], repeats=3, axis=1) #repeat = 3 weil 3 Chanel im Bild
+    kernel = kernel[np.newaxis, np.newaxis, :, :]
+    kernel = torch.Tensor(kernel)
     kernel = kernel / kernel.sum()
+    kernel = np.repeat(kernel, repeats=tensor.shape[1], axis=1).to(device)
     filtered_tensor = torch.nn.functional.conv2d(tensor, kernel, stride=1, padding=1)
     return filtered_tensor * mask + tensor * mask_inv #TODO:verschieben in mask
 

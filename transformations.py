@@ -91,6 +91,29 @@ def generate_patches(data, clean_image, num_patches=None, shape=(64, 64), augmen
 
     #print('Generated patches:', patches.shape)
     return patches, clean_patches
+
+def combine_patches(patches, original_shape, augmentation):
+    """
+    Args:
+    patches (tensor): all generated patches by "generate_patches" or "generate_patches_from_List"
+    original_shape (tuple): the shape of the pictures befor making patches like (128,128)
+    augmentation (bool): are tthe patches augmented?
+    
+    Returns:
+    tensor: with back augmentation and combined patches
+    """
+    if augmentation:
+        #rotatte 3 times to gett a circle
+        for i in range(3):
+            patches = __rotate__(patches)
+    combined_image = torch.zeros(image_shape)
+    patch_size = patches.shape[-1]
+    idx = 0
+    for y in range(0, image_shape[-2], patch_size):
+        for x in range(0, image_shape[-1], patch_size):
+            combined_image[..., y:y + patch_size, x:x + patch_size] = patches[idx]
+            idx += 1
+    return combined_image
     
 def __extract_patches__(data, clean_image, num_patches=None, shape=(64, 64)):
     patches = []
@@ -109,15 +132,17 @@ def __extract_patches__(data, clean_image, num_patches=None, shape=(64, 64)):
     return torch.cat(patches, axis=0), torch.cat(clean_patches, axis=0)
 
 def __augment_patches__(patches):
+    augmented = __rotate__(patches)
+    augmented = torch.cat((augmented, torch.flip(augmented, [-2])))
+    return augmented
+
+def __rotate__(patches):
     augmented = torch.cat((patches,
                             torch.rot90(patches, 1, (-2, -1)),
                             torch.rot90(patches, 2, (-2, -1)),
                             torch.rot90(patches, 3, (-2, -1))),
                             dim=0)
-    augmented = torch.cat((augmented, torch.flip(augmented, [-2])))
     return augmented
-
-
 
 
 def calculate_mean_std_dataset(dataset, sigma, device, mean=None, std=None):

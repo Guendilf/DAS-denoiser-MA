@@ -8,12 +8,6 @@ import shutil
 import torch
 
 
-def add_gaus_noise(image, mean, sigma):
-    noise = torch.randn_like(image) * sigma + mean
-    noisy_image = image + noise
-    noisy_image = torch.clamp(noisy_image, 0, 1)
-    return noisy_image
-
 def show_pictures_from_dataset (dataset, model=None, generation=0):
     if model:
         with torch.no_grad():
@@ -180,3 +174,47 @@ def add_noise_snr(x, snr_db):
     alpha = torch.sqrt(Es/(snr_linear*En))
     noise = x + noise * alpha
     return noise, alpha.item()
+
+def filp_lr_ud(img, lr, ud):
+    """
+    augmentation, flip leftt and right side (dim=2), fllip up and down side (dim=3)
+    Args:
+        img (tensor b,c,w,h): Image TTensor whichh could be flipt
+        lr (int): flip left and right
+        ud (int): flip up and down
+    """
+    if lr > 0:
+        img = torch.flip(img, dims=[2])
+    if ud > 0:
+        img = torch.flip(img, dims=[3])
+    return img
+
+def estimate_opt_sigma(noise_images, denoised, samples, l_in, l_ex):
+    """
+    used for Noise2Info to determin a better suited sigma for loss calculation
+    Args:
+        moodel: the used torch model
+        noise_images (tensor): images withh noise with sahpe: (b,c,w,h)
+        samples: samples for Monte Carloo integration
+    Returns:
+        best sigma value
+    """
+    e_l = 0
+
+    n = torch.sort(denoised-noise_images).values
+    all_pixels = n.shape[0]*n.shape[1]*n.shape[2]*n.shape[3]
+    for i in range(samples):
+        # sample uniform between 0 and max(pixel count in images) exacly "samples" pixels
+        indices = torch.randperm(all_pixels)[:samples]
+        # transform n into vector view and extract the sampled values
+        sampled_values = n.view(-1)[indices]
+        sorted_values = torch.sort(sampled_values).values #result from sort: [values, indices]
+
+        start_idx = i * samples
+        end_idx = start_idx + samples
+        for j in range(start_idx, end_idx):
+            e_l += torch.sum((n.view(-1)[j] - sorted_values) ** 2)
+    e_l = e_l / samples
+    #Equation 6
+    sigma = l_ex + (l_ex**2 + all_pixels*(l_in-e_l)).sqrt()/all_pixels#TODO: e_l ist sehr groß und l_in sehr klein -> NaN weegen wurzel
+    return sigma

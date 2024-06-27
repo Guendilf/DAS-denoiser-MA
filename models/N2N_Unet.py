@@ -171,12 +171,12 @@ class TestNet(nn.Module):
         self.output_chanels = output_chanels
 
         self.net1 = nn.Sequential(
-            nn.Conv2d(in_channels=self.input_chanels, out_channels=48, kernel_size=3, padding='same'),
+            nn.Conv2d(in_channels=self.input_chanels, out_channels=output_chanels, kernel_size=3, padding='same'),
             nn.LeakyReLU(0.1),
-            nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.Conv2d(in_channels=output_chanels, out_channels=output_chanels, kernel_size=3, padding='same'),
             nn.LeakyReLU(0.1),
 
-            nn.Conv2d(in_channels=48, out_channels=3, kernel_size=3, padding='same'),
+            nn.Conv2d(in_channels=output_chanels, out_channels=input_chanels, kernel_size=3, padding='same'),
             nn.LeakyReLU(0.1),
 
         )
@@ -317,7 +317,7 @@ class U_Net(nn.Module):
             doubleConv(512, 1024, batchNorm),
         )
 
-        self.decoder1 = Up(1024, 512, batchNorm, skip=self.skipLast)
+        self.decoder1 = Up(1024, 512, batchNorm, skipConnection=self.skipLast)
         self.decoder2 = Up(512, 256, batchNorm)
         self.decoder3 = Up(256, 128, batchNorm)
         self.decoder4 = Up(128,64, batchNorm)
