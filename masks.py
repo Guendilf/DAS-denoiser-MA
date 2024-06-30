@@ -3,6 +3,7 @@ import numpy as np
 
 
 class Mask:
+    #old_version
     def cut2self_mask(image_size, batch_size, mask_size=(4, 4), mask_percentage=0.003, corrected=0): #TODO: random maskieren
         total_area = image_size[0] * image_size[1]  #w*h
         
@@ -31,32 +32,79 @@ class Mask:
             mask, num_regions = Mask.cut2self_mask(image_size, batch_size, mask_size, mask_percentage, corrected=corrected+1)
         """
         return mask, num_regions
+    
 
+    #replaces cut2self_mask and n2void_mask
+    def mask_random(img, maskamount, mask_size=(4,4)):
+        """
+        TODO: is not saturated sampling (but in if section for mask_size=(1,1)) -> the same Pixel could be chosen multiple times -> in one picture there is less then required amount of masking
+        Args
+            img (tensor): Noisy images in form of (b,c,w,h) only for shape extraction
+            maskamount (number): float for percentage masking; int for area amount masking
+            mask_size (tupel): area that will be masked (w,h)
+        Return
+            mask (tensor): masked pixel are set to 1 (b,c,w,h)
+            masked pixel (int): pixel that should be masked
+        """
+        total_area = img.shape[-1] * img.shape[-2]
+        #if amount of pixel shoulld be masked
+        if isinstance(maskamount, int):
+            mask_percentage = maskamount*1/total_area
+        else:
+            mask_percentage = maskamount
+            maskamount = int(mask_percentage*total_area/1)
+            if maskamount == 0:
+                maskamount = 1
+        mask_area = mask_size[0] * mask_size[1]
+        num_regions = int((mask_percentage * total_area) / mask_area)
+        masks = []
+        #fast methode for pixel only "select_random_pixel" or even with nn.functional.dropout
+        #saturated sampling ensured through "torch.randperm" in select_random_pixels
+        if mask_size == (1,1):
+            for _ in range(img.shape[0]):
+                mask = select_random_pixels((img.shape[1], img.shape[2],img.shape[3]), maskamount)
+                masks.append(mask)
+            mask = torch.stack(masks, dim=0)
+            return mask, torch.count_nonzero(mask)
+        
+        else:
+            for _ in range(img.shape[0]):
+                mask = torch.zeros(img.shape[-1], img.shape[-2], dtype=torch.float32)
+                for _ in range(num_regions):        # generiere eine maske
+                    x = torch.randint(0, img.shape[-1] - mask_size[1] + 1, (1,))
+                    y = torch.randint(0, img.shape[-2] - mask_size[0] + 1, (1,))
+                    mask[x:x+mask_size[0], y:y+mask_size[1]] = 1
+                masks.append(mask)
+        
+        mask = torch.stack(masks, dim=0)
+        mask = mask.unsqueeze(1)  # (b, 1, w, h)
+        mask = mask.expand(-1, img.shape[1], -1, -1) # (b, 3, w, h)
+        return mask, torch.count_nonzero(mask)
 
-
-    def n2self_mask(noise_image, i, grid_size=3, mode='interpolate'):       #i= epoch % (width**2  -1)
+    def n2self_mask(noise_image, i, grid_size=3, mode='interpolate', include_mask_as_input=False):       #i= epoch % (width**2  -1)
         phasex = i % grid_size
         phasey = (i // grid_size) % grid_size
         mask = n2self_pixel_grid_mask(noise_image[0, 0].shape, grid_size, phasex, phasey)
         mask = mask.to(noise_image.device)
         mask_inv = 1 - mask
+        mask_inv = torch.ones(mask.shape).to(noise_image.device) - mask
         if mode == 'interpolate':
             masked = n2self_interpolate_mask(noise_image, mask, mask_inv)
         elif mode == 'zero':
             masked = noise_image * mask_inv
         #else:
             #raise NotImplementedError
-        #if self.include_mask_as_input:
-            #net_input = torch.cat((masked, mask.repeat(X.shape[0], 1, 1, 1)), dim=1)
-        #else:
-        net_input = masked
+        if include_mask_as_input:
+            net_input = torch.cat((masked, mask.repeat(noise_image.shape[0], 1, 1, 1)), dim=1)
+        else:
+            net_input = masked
         return net_input, mask
     
 
-    def n2self_jinv_recon(noise_image, model):
-        return jinv_recon(noise_image, model)
+    def n2self_jinv_recon(noise_image, model, grid_size=4, mode='interpolate', infer_single_pass=False, include_mask_as_input=False):
+        return jinv_recon(noise_image, model, grid_size, mode, infer_single_pass, include_mask_as_input)
     
-
+    #old_version
     def n2void_mask(image, num_masked_pixels=8):
         """
         uniform_pixel_selection_mask
@@ -132,7 +180,6 @@ def n2self_interpolate_mask(tensor, mask, mask_inv):
     device = tensor.device
     mask = mask.to(device)
     kernel = np.array([[0.5, 1.0, 0.5], [1.0, 0.0, 1.0], (0.5, 1.0, 0.5)])
-    #kernel = np.repeat(kernel[np.newaxis, np.newaxis, :, :], repeats=3, axis=1) #repeat = 3 weil 3 Chanel im Bild
     kernel = kernel[np.newaxis, np.newaxis, :, :]
     kernel = torch.Tensor(kernel)
     kernel = kernel / kernel.sum()
@@ -140,13 +187,25 @@ def n2self_interpolate_mask(tensor, mask, mask_inv):
     filtered_tensor = torch.nn.functional.conv2d(tensor, kernel, stride=1, padding=1)
     return filtered_tensor * mask + tensor * mask_inv #TODO:verschieben in mask
 
-def jinv_recon(noise_image, model): #infer_full_image in mask.py from n2Self
-        grid_size=3 #gleicher wert wie in "Mask.n2self_mask" beim ttraining
-        net_input, mask = Mask.n2self_mask(noise_image, 0, mode = 'zero')
+def jinv_recon(noise_image, model, grid_size, mode, infer_single_pass, include_mask_as_input):
+    """
+    Original: infer_full_image from Noise2Self masks.py
+    """
+    """
+    if infer_single_pass:
+        if include_mask_as_input:
+            net_input = torch.cat((noise_image, torch.zeros(noise_image[:, 0:1].shape).to(noise_image.device)), dim=1)
+        else:
+            net_input = noise_image
         net_output = model(net_input)
-        acc_tensor = torch.zeros(net_output.shape).to(noise_image.device)
-        for i in range(grid_size**2):
-            net_input, mask = Mask.n2self_mask(noise_image, i, mode = 'zero')
-            net_output = model(net_input)
-            acc_tensor = acc_tensor + (net_output * mask).to(noise_image.device)
-        return acc_tensor
+        return net_output
+    """
+    #else:
+    net_input, mask = Mask.n2self_mask(noise_image, 0, grid_size=grid_size, mode=mode, include_mask_as_input=include_mask_as_input)
+    net_output = model(net_input)
+    acc_tensor = torch.zeros(net_output.shape).cpu()
+    for i in range(grid_size**2):
+        net_input, mask = Mask.n2self_mask(noise_image, i, grid_size=grid_size, mode=mode, include_mask_as_input=include_mask_as_input)
+        net_output = model(net_input)
+        acc_tensor = acc_tensor + (net_output * mask).cpu()
+    return acc_tensor

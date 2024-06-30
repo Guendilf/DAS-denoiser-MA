@@ -34,6 +34,7 @@ from torch.utils.tensorboard import SummaryWriter
 max_Iteration = 2
 max_Epochs = 20
 max_Predictions = 30 #für self2self um reconstruktion zu machen
+torch.manual_seed(42)
 
 def evaluateSigma(noise_image, vector):
     sigmas = torch.linspace(0.1, 0.7, 61)
@@ -120,7 +121,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                     std = noise_images.std(dim=[0,2,3])
                     noise_images = (noise_images - mean[None, :, None, None]) / std[None, :, None, None]
                     denoised = model(noise_images)
-                elif "self2slef" in methode:
+                elif "self2self" in methode:
                     denoised = torch.ones_like(noise_images)
                     for i in range(max_Predictions):
                         _, denoised_tmp, _, _, flip = calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation, lambda_inv=lambda_inv, dropout_rate=dropout_rate)
@@ -185,7 +186,7 @@ def main(argv):
     }
     #writer = None
     sigma = 0.4
-    sigma = 2
+    sigma = 5
     save_model = False #save models as pth
 
     celeba_dir = 'dataset/celeba_dataset'
@@ -267,11 +268,6 @@ def main(argv):
             print("Epochs highest PSNR: ", high_psnr)
             print("Epochs highest Sim: ", high_sim)
             
-            if math.isnan(loss[-1]):
-                model_save_path = os.path.join(store_path, "models", "NaN.txt")
-                f = open(model_save_path, "x")
-                f.close()
-                break
             if torch.cuda.device_count() == 1:
                 continue
             
@@ -299,6 +295,12 @@ def main(argv):
             writer.add_scalar("PSNR/validation", Metric.avg_list(psnr_val), epoch)
             writer.add_scalar("sim/train", Metric.avg_list(similarity), epoch)
             writer.add_scalar("sim/validation", Metric.avg_list(similarity_val), epoch)
+        
+            if math.isnan(loss[-1]):
+                model_save_path = os.path.join(store_path, "models", "NaN.txt")
+                f = open(model_save_path, "x")
+                f.close()
+                break
         
         if torch.cuda.device_count() == 1:
             continue

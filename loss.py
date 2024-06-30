@@ -7,7 +7,7 @@ def n2noise(original, noise_images, sigma, device, model):
     #src1 = add_gaus_noise(original, 0.5, sigma).to(device)
     #schöner 1 Zeiler:
     #noise_image2 = add_norm_noise(original, sigma+0.3, min_value, max_value, a=-1, b=1)
-    noise_image2, alpha = add_noise_snr(original, snr_db=sigma+2)
+    noise_image2, alpha = add_noise_snr(original, snr_db=sigma-2)
     noise_image2 = noise_image2.to(device) #+ mean
     # Denoise image
     denoised = model(noise_images)
@@ -33,6 +33,7 @@ def n2self(noise_image, batch_idx, model):
 def n2void(original_images, noise_images, model, device, num_patches_per_img, windowsize, num_masked_pixels, augmentation):
     patches, clean_patches = generate_patches_from_list(noise_images, original_images, num_patches_per_img=num_patches_per_img, augment=augmentation)
     mask  = Mask.n2void_mask(patches, num_masked_pixels=8).to(device)
+    # mask, num_masked_pixels = Mask.mask_random(patches, 8, mask_size=(1,1))
     masked_noise = Mask.exchange_in_mask_with_pixel_in_window(mask, patches, windowsize, num_masked_pixels)
     
     denoised = model(masked_noise)
@@ -44,12 +45,10 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
     return loss_function(denoised_pixel, target_pixel), denoised, patches, clean_patches
 
 def n2same(noise_images, device, model, lambda_inv=2):
-    mask, marked_points = Mask.cut2self_mask((noise_images.shape[2],noise_images.shape[3]), noise_images.shape[0], mask_size=(1, 1), mask_percentage=0.005) #0,5% Piel maskieren
+    mask, marked_points = Mask.mask_random(noise_images, maskamount=0.05, mask_size=(1,1))
     mask = mask.to(device)
-    mask = mask.unsqueeze(1)  # (b, 1, w, h)
-    mask = mask.expand(-1, noise_images.shape[1], -1, -1) # (b, 3, w, h)
     masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
-    masked_input = masked_input * (mask * 0.2) #deleted pixels will be gausian noise with sigma=0.2 as in appendix D
+    masked_input = masked_input + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask ) #deleted pixels will be gausian noise with sigma=0.2 as in appendix D
     denoised = model(noise_images)
     denoised_mask = model(masked_input)
     mse = torch.nn.MSELoss()
