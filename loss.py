@@ -33,7 +33,8 @@ def n2self(noise_image, batch_idx, model):
 def n2void(original_images, noise_images, model, device, num_patches_per_img, windowsize, num_masked_pixels, augmentation):
     patches, clean_patches = generate_patches_from_list(noise_images, original_images, num_patches_per_img=num_patches_per_img, augment=augmentation)
     mask  = Mask.n2void_mask(patches, num_masked_pixels=8).to(device)
-    # mask, num_masked_pixels = Mask.mask_random(patches, 8, mask_size=(1,1))
+    #mask, num_masked_pixels_total = Mask.mask_random(patches, 8, mask_size=(1,1))
+    #mask = mask.to(device)
     masked_noise = Mask.exchange_in_mask_with_pixel_in_window(mask, patches, windowsize, num_masked_pixels)
     
     denoised = model(masked_noise)
@@ -67,18 +68,19 @@ def self2self(noise_images, model, device, dropout_rate):
     #bernoulli mask with only (0 and 1-dropout)
     mask_model_input = torch.nn.functional.dropout(mask, dropout_rate)
     mask = mask_model_input * (1-dropout_rate) #TODO: wirkllichh *(1-drop)?
-    input = noise_images * mask
-    denoised, mod_mask = model(input, mask_model_input)
+    model_in = noise_images * mask
+    denoised, mod_mask = model(model_in, mask_model_input)
     loss = torch.sum((denoised - noise_images)**2 * (1-mask)) / torch.count_nonzero(1-mask).float()
     return loss, denoised, mask, flip_lr, flip_ud
 
 def noise2info(noise_images, model, device, sigma_start):
     #TODO: augmenttation
     #TODO: ich glaube mask ist genauso wie bei n2same. Weil: Paper S.6 unten
-    mask, marked_points = Mask.cut2self_mask((noise_images.shape[2],noise_images.shape[3]), noise_images.shape[0], mask_size=(1, 1), mask_percentage=0.005) #0,5% Piel maskieren
+    #mask, marked_points = Mask.cut2self_mask((noise_images.shape[2],noise_images.shape[3]), noise_images.shape[0], mask_size=(1, 1), mask_percentage=0.005) #0,5% Piel maskieren
+    mask, marked_points = Mask.mask_random(noise_images, 0.005, mask_size=(1,1))
     mask = mask.to(device)
-    mask = mask.unsqueeze(1)  # (b, 1, w, h)
-    mask = mask.expand(-1, noise_images.shape[1], -1, -1) # (b, 3, w, h)
+    #mask = mask.unsqueeze(1)  # (b, 1, w, h)
+    #mask = mask.expand(-1, noise_images.shape[1], -1, -1) # (b, 3, w, h)
     masked_input = (1-mask) * noise_images
 
     denoised = model(noise_images)
@@ -97,7 +99,7 @@ def n2n_loss_for_das(denoised, target):
 
 
 
-def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation=True, lambda_inv=2, dropout_rate=0.3, samples=15, num_patches_per_img=None, num_masked_pixels=8, sigma_info=1):
+def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation=True, lambda_inv=2, dropout_rate=0.3, samples=10, num_patches_per_img=None, num_masked_pixels=8, sigma_info=1):
     lr = 0
     ud = 0
     if methode == "n2noise":
@@ -141,6 +143,7 @@ def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, 
                 est_sigma_opt = estimate_opt_sigma(noise_images, denoised, samples, loss_inv, loss_ex).item()
             if est_sigma_opt < sigma_info:
                 sigma_info = est_sigma_opt
+                print("new sigma!")
             if sigma_info < 0:
                 sigma_info = 0
                 raise Exception(f"Optimal sigma in Noise2Info is negative with {sigma_info} . Loss_inv = {loss_inv} , Loss_ex = {loss_ex}!")

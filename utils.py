@@ -189,7 +189,7 @@ def filp_lr_ud(img, lr, ud):
         img = torch.flip(img, dims=[3])
     return img
 
-def estimate_opt_sigma(noise_images, denoised, samples, l_in, l_ex):
+def estimate_opt_sigma(noise_images, denoised, kmc, l_in, l_ex):
     """
     used for Noise2Info to determin a better suited sigma for loss calculation
     Args:
@@ -200,21 +200,20 @@ def estimate_opt_sigma(noise_images, denoised, samples, l_in, l_ex):
         best sigma value
     """
     e_l = 0
-
-    n = torch.sort(denoised-noise_images).values
-    all_pixels = n.shape[0]*n.shape[1]*n.shape[2]*n.shape[3]
-    for i in range(samples):
+    n = (denoised-noise_images).view(denoised.shape[0], -1) # (b, c*w*h)
+    n = torch.sort(n, dim=1).values #sort every batch
+    m = denoised.shape[1]*denoised.shape[2]*denoised.shape[3]
+    all_pixels = denoised.shape[0]*denoised.shape[1]*denoised.shape[2]*denoised.shape[3]
+    for i in range(kmc):# TODO: checken ob richhtiger wert aus k_mc
         # sample uniform between 0 and max(pixel count in images) exacly "samples" pixels
-        indices = torch.randperm(all_pixels)[:samples]
+        indices = torch.randperm(all_pixels)[:m]
         # transform n into vector view and extract the sampled values
         sampled_values = n.view(-1)[indices]
         sorted_values = torch.sort(sampled_values).values #result from sort: [values, indices]
 
-        start_idx = i * samples
-        end_idx = start_idx + samples
-        for j in range(start_idx, end_idx):
-            e_l += torch.sum((n.view(-1)[j] - sorted_values) ** 2)
-    e_l = e_l / samples
+        
+        e_l += torch.mean((n - sorted_values) ** 2)
+    e_l = e_l / kmc
     #Equation 6
     sigma = l_ex + (l_ex**2 + all_pixels*(l_in-e_l)).sqrt()/all_pixels#TODO: e_l ist sehr groß und l_in sehr klein -> NaN weegen wurzel
     return sigma
