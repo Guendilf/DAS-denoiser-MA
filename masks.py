@@ -139,7 +139,7 @@ class Mask:
         for pixel_idx in range(cords.shape[0]): #cords.shape=(batch*num_mask_pixel*chanel, 4)   geht alle gefundenen Koordinaten durch die nicht 0 sind in Maske
             batch, chanel, x, y = cords[pixel_idx]
             batch, chanel, x, y = batch.item(), chanel.item(), x.item(), y.item()
-            if chanel != 0:
+            if chanel != 0: #copy the same pixel as in chanel 0
                 new_x, new_y = memory[pixel_idx % num_masked_pixels]
                 bearbeitete_Bilder[batch, chanel, x, y] = data[batch, chanel, new_x, new_y]
             else: 
@@ -203,9 +203,9 @@ def jinv_recon(noise_image, model, grid_size, mode, infer_single_pass, include_m
     #else:
     net_input, mask = Mask.n2self_mask(noise_image, 0, grid_size=grid_size, mode=mode, include_mask_as_input=include_mask_as_input)
     net_output = model(net_input)
-    acc_tensor = torch.zeros(net_output.shape).cpu()
+    acc_tensor = torch.zeros(net_output.shape).to(noise_image.device)#.cpu()
     for i in range(grid_size**2):
         net_input, mask = Mask.n2self_mask(noise_image, i, grid_size=grid_size, mode=mode, include_mask_as_input=include_mask_as_input)
         net_output = model(net_input)
-        acc_tensor = acc_tensor + (net_output * mask).cpu()
+        acc_tensor = acc_tensor + (net_output * mask).to(noise_image.device)#.cpu()
     return acc_tensor

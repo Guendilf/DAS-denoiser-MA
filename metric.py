@@ -20,7 +20,13 @@ class Metric:
         image1 = image1.cpu().detach().numpy()
         image2 = image2.cpu().detach().numpy()
         image_range = image1.max() - image1.min()
-        similarity_index, diff_image = sim(image1, image2, data_range=image_range, channel_axis=1, full=True)
+        channel_axis = 1
+        #if batchsize == 1 -> delete batch
+        if image1.shape[0] == 1 and len(image1.shape) == 4:
+            image1 = np.squeeze(image1)
+            image2 = np.squeeze(image2)
+            channel_axis = 0
+        similarity_index, diff_image = sim(image1, image2, data_range=image_range, channel_axis=channel_axis, full=True)
         return similarity_index, diff_image
     
     def tv_norm(x):

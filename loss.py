@@ -59,18 +59,28 @@ def n2same(noise_images, device, model, lambda_inv=2):
     return loss, denoised, denoised_mask #J = count of maked_points
 
 def self2self(noise_images, model, device, dropout_rate):
+    
+    #my methode idea:
+    mask, marked_points = Mask.mask_random(noise_images, 0.5, (1,1))
+    mask = mask.to(device)
+    mask = (1-mask)
+    """
+    #original methode:  bernoulli mask with only (0 and 1-dropout)
+    mask = torch.ones(noise_images.shape).to(device)
+    mask = torch.nn.functional.dropout(mask, dropout_rate) * (1-dropout_rate)
+    marked_points = torch.count_nonzero(1-mask)
+    """
     #augmentation if value > 0
     flip_lr = np.random.randint(2)
     flip_ud = np.random.randint(2)
-    noise_images = filp_lr_ud(noise_images, flip_lr, flip_ud)
-    #mask with only 1s
-    mask = torch.ones(noise_images.shape).to(device)
-    #bernoulli mask with only (0 and 1-dropout)
-    mask_model_input = torch.nn.functional.dropout(mask, dropout_rate)
-    mask = mask_model_input * (1-dropout_rate) #TODO: wirkllichh *(1-drop)?
-    model_in = noise_images * mask
-    denoised, mod_mask = model(model_in, mask_model_input)
-    loss = torch.sum((denoised - noise_images)**2 * (1-mask)) / torch.count_nonzero(1-mask).float()
+    
+    masked_input = noise_images * mask
+    masked_input = filp_lr_ud(masked_input, flip_lr, flip_ud)
+    
+
+    denoised, mod_mask = model(masked_input, mask)
+    loss = torch.sum((denoised - noise_images)**2 * (1-mask)) / marked_points
+    denoised = filp_lr_ud(denoised, flip_lr, flip_ud)
     return loss, denoised, mask, flip_lr, flip_ud
 
 def noise2info(noise_images, model, device, sigma_start):

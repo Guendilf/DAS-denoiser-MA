@@ -64,31 +64,31 @@ class P_U_Net(nn.Module):
     def forward(self, x, mask):
         # Encoder
         init, mask = self.inittial(x, mask)     # (N, 48, 128, 128)
-        skip1, mask = self.encoder1(init, mask)  # (N, 64, 64, 128)
-        skip2, mask = self.encoder2(skip1, mask)  # (N, 128, 32, 64)
-        skip3, mask = self.encoder3(skip2, mask)  # (N, 256, 16, 32)
-        skip4, mask = self.encoder4(skip3, mask)  # (N, 512, 8, 16)
-        result, mask = self.encoder5(skip4, mask)  # (N, 1024, 4, 4)
-        result, mask = self.encoder6(result, mask)  # (N, 1024, 4, 4)   !macht kein Sinn
+        skip1, mask = self.encoder1(init, mask)  # (N, 48, 64, 64)
+        skip2, mask = self.encoder2(skip1, mask)  # (N, 48, 32, 32)
+        skip3, mask = self.encoder3(skip2, mask)  # (N, 48, 16, 16)
+        skip4, mask = self.encoder4(skip3, mask)  # (N, 48, 8, 8)
+        result, mask = self.encoder5(skip4, mask)  # (N, 48, 4, 4)
+        result, mask = self.encoder6(result, mask)  # (N, 48, 4, 4)   !macht kein Sinn
 
         # Decoder
 
-        result = self.decoder1(result, skip4) # (N, 512, 16, 16)
-        result = self.decoder2(result, skip3)  # (N, 256, 32, 32)
-        result = self.decoder3(result, skip2)  # (N, 128, 64, 64)
-        result = self.decoder4(result, skip1)  # (N, 64, 128, 128)
+        result = self.decoder1(result, skip4) # (N, 96, 8, 8)
+        result = self.decoder2(result, skip3)  # (N, 96, 16, 16)
+        result = self.decoder3(result, skip2)  # (N, 96, 32, 32)
+        result = self.decoder4(result, skip1)  # (N, 96, 64, 64)
 
         padding_shape = (1, 1, 1, 1)
-        result = self.up(result)
-        result = torch.cat((result, x), dim=1)
+        result = self.up(result)  # (N, 96, 128, 128)
+        result = torch.cat((result, x), dim=1)  # (N, 96+c, 128, 128)
         result = self.last_decoder_block_droopout(result)
-        result = nn.functional.pad(result, padding_shape, mode="replicate")
-        result = self.last_decoder_block_1a(result)
-        result = nn.functional.pad(result, padding_shape, mode="replicate")
-        result = self.last_decoder_block_1b(result)
-        result = nn.functional.pad(result, padding_shape, mode="replicate")
+        result = nn.functional.pad(result, padding_shape, mode="replicate") # (N, 96+c, 130, 130)
+        result = self.last_decoder_block_1a(result)  # (N, 64, 128, 128)
+        result = nn.functional.pad(result, padding_shape, mode="replicate") # (N, 96+c, 130, 130)
+        result = self.last_decoder_block_1b(result)  # (N, 32, 128, 128)
+        result = nn.functional.pad(result, padding_shape, mode="replicate") # (N, 32, 130, 130)
 
-        result = self.final_conv(result)  # (N, 64, 128, 128)
+        result = self.final_conv(result)  # (N, c, 128, 128)
         
         return result, mask
     
@@ -129,10 +129,13 @@ class Encoder(nn.Module):
 
         self.maxpool = maxpool
         self.lr = lr
-        self.pconv = PConv2d(in_channel, out_channel)
+        self.pconv = PConv2d(in_channel, out_channel, kernel_size=3)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
     def forward(self, x, mask):
+        padding_shape = (1,1,1,1)
+        x = nn.functional.pad(x, padding_shape, "replicate")
+        mask = nn.functional.pad(mask, padding_shape, "constant", value=1)
         x, mask = self.pconv(x,mask)
         x = nn.LeakyReLU(self.lr)(x)
         mask = nn.LeakyReLU(self.lr)(mask)

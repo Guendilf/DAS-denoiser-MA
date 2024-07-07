@@ -33,7 +33,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 max_Iteration = 2
 max_Epochs = 20
-max_Predictions = 30 #für self2self um reconstruktion zu machen
+max_Predictions = 100 #für self2self um reconstruktion zu machen
 torch.manual_seed(42)
 
 def evaluateSigma(noise_image, vector):
@@ -126,8 +126,10 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                     for i in range(max_Predictions):
                         _, denoised_tmp, _, _, flip = calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation, lambda_inv=lambda_inv, dropout_rate=dropout_rate)
                         (lr, ud, _) = flip
-                        denoised_tmp = filp_lr_ud(denoised_tmp, lr, ud)
+                        #denoised_tmp = filp_lr_ud(denoised_tmp, lr, ud)
                         denoised = denoised + denoised_tmp
+                    denoised = denoised / max_Predictions
+                    denoised = (denoised+1)/2
                 elif "n2info" in methode:
                     #TODO: normalisierung ist in der implementation da, aber ich habe es noch nicht im training gefunden
                     denoised = model(noise_images)
@@ -175,7 +177,7 @@ def main(argv):
     else:
         device = "cuda:3"
     methoden_liste = ["n2noise", "n2score", "n2self", "n2self j-invariant", "n2same", "n2same batch", "n2info", "self2self", "n2void"]
-    #methoden_liste = ["n2info"]
+    #methoden_liste = ["self2self"]
 
     layout = {
         "Training vs Validation": {
@@ -186,7 +188,7 @@ def main(argv):
     }
     #writer = None
     sigma = 0.4
-    sigma = 5
+    sigma = 2
     save_model = False #save models as pth
 
     celeba_dir = 'dataset/celeba_dataset'
@@ -195,6 +197,7 @@ def main(argv):
     transform_noise = transforms.Compose([
         #transforms.RandomResizedCrop((128,128)),
         transforms.CenterCrop((128,128)),
+        #transforms.Resize((512,512)), #for self2self
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.float()),
         transforms.Lambda(lambda x:  x * 2 -1),
@@ -202,9 +205,11 @@ def main(argv):
     print("lade Datensätze ...")
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise)
     dataset = torch.utils.data.Subset(dataset, list(range(6400)))
+    #dataset = torch.utils.data.Subset(dataset, list(range(2)))
     
     dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=False, transform=transform_noise)
     dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(640)))
+    #dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(1)))
 
     dataset_test = datasets.CelebA(root=celeba_dir, split='test', download=False, transform=transform_noise)
     dataset_test = torch.utils.data.Subset(dataset_test, list(range(640)))
@@ -221,8 +226,8 @@ def main(argv):
         dataLoader_validate = DataLoader(dataset_validate, batch_size=32, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=32, shuffle=False)
         if torch.cuda.device_count() == 1:
-            model = N2N_Orig_Unet(3,3).to(device)
-            #model = P_U_Net(in_chanel=3, batchNorm=False, dropout=0.3).to(device)
+            #default: model = N2N_Orig_Unet(3,3).to(device)
+            model = P_U_Net(in_chanel=3, batchNorm=True, dropout=0.3).to(device)
             #model = U_Net().to(device)
         else:
             #model = TestNet(3,3).to(device)
@@ -233,7 +238,10 @@ def main(argv):
                 model = P_U_Net(in_chanel=3, batchNorm=False, dropout=0.3).to(device)
             else:
                 model = U_Net().to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
+        if "self2self" in methode:
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+        else:
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
         bestPsnr = -100
         bestPsnr_val = -100
         store_path = log_files()
@@ -268,10 +276,12 @@ def main(argv):
             print("Epochs highest PSNR: ", high_psnr)
             print("Epochs highest Sim: ", high_sim)
             
-            if torch.cuda.device_count() == 1:
-                continue
+            #if torch.cuda.device_count() == 1:
+                #continue
             
-            
+            #if epoch%100!=0:
+                #continue
+                
             #runing on Server
             loss_val, psnr_val, similarity_val, bestPsnr_val = train(model, optimizer, device, dataLoader_validate, methode, sigma=sigma, mode="validate", 
                                                                     store=store_path, epoch=epoch, bestPsnr=bestPsnr_val, writer = writer, 
@@ -287,6 +297,7 @@ def main(argv):
             high_sim = max(similarity_val)
             if max(psnr_val) > bestPsnr_val:
                 bestPsnr_val = max(psnr_val)
+            print("Loss: ", loss_val[-1])
             print("Epochs highest PSNR: ", high_psnr)
             print("Epochs highest Sim: ", high_sim)
             writer.add_scalar("loss/train", Metric.avg_list(loss), epoch)
@@ -300,6 +311,7 @@ def main(argv):
                 model_save_path = os.path.join(store_path, "models", "NaN.txt")
                 f = open(model_save_path, "x")
                 f.close()
+                print(f"NAN, breche ab, break: {methode}")
                 break
         
         if torch.cuda.device_count() == 1:
