@@ -89,6 +89,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
     sim_log = []
     best_sigmas = []    #only for Score in validation + test
     all_tvs = []     #only for Score in validation + test
+    true_sigma_score = []
     bestPsnr = bestPsnr
     bestSim = -1
     for batch_idx, (original, label) in enumerate(tqdm(dataLoader)):
@@ -105,6 +106,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                 if methode == "n2noise":
                     denoised = model (noise_images)            
                 elif methode == "n2score":
+                    true_sigma_score.append(true_noise_sigma)
                     vector =  model(noise_images)
                     best_tv, best_sigma = evaluateSigma(noise_images, vector)
                     best_sigmas.append(best_sigma)
@@ -160,9 +162,20 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         bestPsnr = saveModel_pictureComparison(model, len(dataLoader), methode, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch)
     """
     if (mode=="test" or mode =="validate") and (methode == "n2score"):
-        for i in range(len(best_tv)):
-            writer.add_scalar('Validation sigma', best_sigmas[i], epoch * len(dataLoader) + i)
-            writer.add_scalar('Validation tv', best_tv[i], epoch * len(dataLoader) + i)
+        ture_sigma_line = np.mean(true_sigma_score)
+        #for i in range(len(best_tv)):
+            #writer.add_scalar('Validation sigma', best_sigmas[i], epoch * len(dataLoader) + i)
+            #writer.add_scalar('Validation tv', best_tv[i], epoch * len(dataLoader) + i)
+        if mode == "validate":
+            writer.add_scalar('Validation true sigma', ture_sigma_line, epoch )
+            writer.add_scalar('Validation sigma', np.mean(best_sigmas), epoch )
+            writer.add_scalar('Validation tv', np.mean(best_tv), epoch)
+            for i in range(len(best_sigmas)):
+                writer.add_scalar('Validation all sigmas', best_sigmas[i], epoch * len(dataLoader) + i)
+        else:
+            writer.add_scalar('Test ture sigma', ture_sigma_line epoch )
+            writer.add_scalar('Test sigma', np.mean(best_sigmas), epoch )
+            writer.add_scalar('Test tv', np.mean(best_tv), epoch)
     """
     return loss_log, psnr_log, sim_log, bestPsnr
 
@@ -177,7 +190,7 @@ def main(argv):
     else:
         device = "cuda:3"
     methoden_liste = ["n2noise", "n2score", "n2self", "n2self j-invariant", "n2same", "n2same batch", "n2info", "self2self", "n2void"]
-    #methoden_liste = ["self2self"]
+    methoden_liste = ["self2self"]
 
     layout = {
         "Training vs Validation": {
