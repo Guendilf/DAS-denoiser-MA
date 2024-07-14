@@ -7,7 +7,7 @@ def n2noise(original, noise_images, sigma, device, model):
     #src1 = add_gaus_noise(original, 0.5, sigma).to(device)
     #schöner 1 Zeiler:
     #noise_image2 = add_norm_noise(original, sigma+0.3, min_value, max_value, a=-1, b=1)
-    noise_image2, alpha = add_noise_snr(original, snr_db=sigma-2)
+    noise_image2, alpha = add_noise_snr(original, snr_db=sigma+2)
     noise_image2 = noise_image2.to(device) #+ mean
     # Denoise image
     denoised = model(noise_images)
@@ -55,7 +55,7 @@ def n2same(noise_images, device, model, lambda_inv=2):
     mse = torch.nn.MSELoss()
     loss_rec = torch.mean((denoised-noise_images)**2) # mse(denoised, noise_images)
     loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
-    loss = loss_rec + lambda_inv * (loss_inv/marked_points).sqrt()
+    loss = loss_rec + lambda_inv *1* (loss_inv/marked_points).sqrt()
     return loss, denoised, denoised_mask #J = count of maked_points
 
 def self2self(noise_images, model, device, dropout_rate):
@@ -109,9 +109,11 @@ def n2n_loss_for_das(denoised, target):
 
 
 
-def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation=True, lambda_inv=2, dropout_rate=0.3, samples=10, num_patches_per_img=None, num_masked_pixels=8, sigma_info=1):
+def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation=True, 
+                   lambda_inv=2, dropout_rate=0.3, samples=10, num_patches_per_img=None, num_masked_pixels=8, sigma_info=1):
     lr = 0
     ud = 0
+    est_sigma_opt = -1
     if methode == "n2noise":
         loss, denoised, noise_image2 = n2noise(original, noise_images, sigma, device, model)
     elif methode == "n2score":
@@ -148,6 +150,7 @@ def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, 
     elif "n2info" in methode:
         loss, denoised, loss_inv, loss_ex = noise2info(noise_images, model, device, sigma_info)
         #callculate new sigma at end of epoch
+        """
         if batch_idx == len(dataLoader):
             with torch.no_grad():
                 est_sigma_opt = estimate_opt_sigma(noise_images, denoised, samples, loss_inv, loss_ex).item()
@@ -157,6 +160,7 @@ def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, 
             if sigma_info < 0:
                 sigma_info = 0
                 raise Exception(f"Optimal sigma in Noise2Info is negative with {sigma_info} . Loss_inv = {loss_inv} , Loss_ex = {loss_ex}!")
+        """
 
 
-    return loss, denoised, original, noise_images, (lr, ud, sigma_info) #original, noise_images  are onlly if n2void
+    return loss, denoised, original, noise_images, (lr, ud, sigma_info, est_sigma_opt) #original, noise_images  are onlly if n2void

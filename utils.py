@@ -189,21 +189,22 @@ def filp_lr_ud(img, lr, ud):
         img = torch.flip(img, dims=[3])
     return img
 
-def estimate_opt_sigma(noise_images, denoised, kmc, l_in, l_ex):
+def estimate_opt_sigma(noise_images, denoised, kmc, l_in, l_ex, n):
     """
     used for Noise2Info to determin a better suited sigma for loss calculation
     Args:
         moodel: the used torch model
         noise_images (tensor): images withh noise with sahpe: (b,c,w,h)
         samples: samples for Monte Carloo integration
+        n: as in paper - it's an argument, because I have multiple batches that must be put together first
     Returns:
         best sigma value
     """
     e_l = 0
-    n = (denoised-noise_images).view(denoised.shape[0], -1) # (b, c*w*h)
-    n = torch.sort(n, dim=1).values #sort every batch
+    #n = (denoised-noise_images).view(denoised.shape[0], -1) # (b, c*w*h)
+    #n = torch.sort(n, dim=1).values #sort every batch
     m = denoised.shape[1]*denoised.shape[2]*denoised.shape[3]
-    all_pixels = denoised.shape[0]*denoised.shape[1]*denoised.shape[2]*denoised.shape[3]
+    all_pixels = n.shape[0]*m
     for i in range(kmc):# TODO: checken ob richhtiger wert aus k_mc
         # sample uniform between 0 and max(pixel count in images) exacly "samples" pixels
         indices = torch.randperm(all_pixels)[:m]
