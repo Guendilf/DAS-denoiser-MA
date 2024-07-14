@@ -143,20 +143,20 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                     #TODO: normalisierung ist in der implementation da, aber ich habe es noch nicht im training gefunden
 
                     _, denoised, loss_inv_tmp, loss_ex_tmp = noise2info(noise_images, model, device, sigma_info)
-                    loss_ex = loss_ex_tmp#+=
-                    loss_inv = loss_inv_tmp#+=
+                    loss_ex += loss_ex_tmp#+=
+                    loss_inv += loss_inv_tmp#+=
 
                     n_partition = (denoised-noise_images).view(denoised.shape[0], -1) # (b, c*w*h)
                     n_partition = torch.sort(n_partition, dim=1).values
-                    #n = torch.cat((n, n_partition), dim=0)
-                    n=n_partition
+                    n = torch.cat((n, n_partition), dim=0)
+                    #n=n_partition
 
-                    #if batch_idx == len(dataLoader) -1:
-                    #loss_inv = loss_inv / len(dataLoader)
-                    est_sigma_opt = estimate_opt_sigma(noise_images, denoised, kmc=10, l_in=loss_inv, l_ex=loss_ex, n=n).item()
-                    if est_sigma_opt < sigma_info:
-                        sigma_info = est_sigma_opt
-                    best_sigmas.append(est_sigma_opt)
+                    if batch_idx == len(dataLoader) -1:
+                        loss_inv = loss_inv / len(dataLoader)
+                        est_sigma_opt = estimate_opt_sigma(noise_images, denoised, kmc=10, l_in=loss_inv, l_ex=loss_ex, n=n).item()
+                        if est_sigma_opt < sigma_info:
+                            sigma_info = est_sigma_opt
+                    #best_sigmas.append(est_sigma_opt)
 
         else:
             model.train()
@@ -182,14 +182,14 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         #save model + picture
         bestPsnr = saveModel_pictureComparison(model, len(dataLoader), methode, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch)
         #log sigma value for noise2info
-        """
+        
         if "n2info" in methode and batch_idx == len(dataLoader)-1:
             #if mode=="train":
                 #writer.add_scalar('Train estimated sigma', est_sigma_opt, epoch * len(dataLoader) + batch_idx)
             if mode=="validate":
                 writer.add_scalar('Validate estimated sigma', est_sigma_opt, epoch)
-            #else: #mode=="test":
-                #writer.add_scalar('Test estimated sigma', est_sigma_opt, 1 * len(dataLoader) + batch_idx)
+            else: #mode=="test":
+                writer.add_scalar('Test estimated sigma', est_sigma_opt, 1 * len(dataLoader) + batch_idx)
         """
     if (mode=="test" or mode =="validate") and ("n2info" in methode):
         if mode=="validate":
@@ -200,7 +200,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
             for i in range(len(best_sigmas)):
                 writer.add_scalar('Test estimated sigma', best_sigmas[i], epoch * len(dataLoader) + i)
             writer.add_scalar('Test estimated sigma', np.mean(best_sigmas), epoch)
-    
+    """
     if (mode=="test" or mode =="validate") and ("n2score" in methode):
         ture_sigma_line = np.mean(true_sigma_score)
         if mode == "validate":
