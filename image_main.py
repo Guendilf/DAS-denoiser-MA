@@ -35,7 +35,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 max_Iteration = 2
-max_Epochs = 1
+max_Epochs = 20
 max_Predictions = 100 #für self2self um reconstruktion zu machen
 torch.manual_seed(42)
 
@@ -181,7 +181,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         #save model + picture
         bestPsnr = saveModel_pictureComparison(model, len(dataLoader), methode, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch)
         #log sigma value for noise2info
-        if methode == "n2info":
+        if "n2info" in methode:
             #if mode=="train":
                 #writer.add_scalar('Train estimated sigma', est_sigma_opt, epoch * len(dataLoader) + batch_idx)
             if mode=="validate":
@@ -189,7 +189,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
             #else: #mode=="test":
                 #writer.add_scalar('Test estimated sigma', est_sigma_opt, 1 * len(dataLoader) + batch_idx)
     
-    if (mode=="test" or mode =="validate") and (methode == "n2score"):
+    if (mode=="test" or mode =="validate") and ("n2score" in methode):
         ture_sigma_line = np.mean(true_sigma_score)
         if mode == "validate":
             writer.add_scalar('Validation true sigma', ture_sigma_line, epoch )
@@ -370,7 +370,7 @@ def main(argv):
         writer.add_scalar("Loss Test", Metric.avg_list(loss_test), 0)
         writer.add_scalar("Sim Test", Metric.avg_list(similarity_test), 0)
 
-        end_results[methode] = [loss, bestPsnr, bestSim, bestPsnr_val, bestSim_val, round(max(psnr_test),3), round(max(similarity_test),3)]
+        end_results[methode] = [loss[-1], bestPsnr, bestSim, bestPsnr_val, bestSim_val, round(max(psnr_test),3), round(max(similarity_test),3)]
 
     end_results.index = ['Loss', 'PSNR Training', 'SIM Training', 'PSNR Validation', 'SIM Validation', 'PSNR Test', 'SIM Test']
 
