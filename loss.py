@@ -7,12 +7,17 @@ def n2noise(original, noise_images, sigma, device, model):
     #src1 = add_gaus_noise(original, 0.5, sigma).to(device)
     #schöner 1 Zeiler:
     #noise_image2 = add_norm_noise(original, sigma+0.3, min_value, max_value, a=-1, b=1)
-    noise_image2, alpha = add_noise_snr(original, snr_db=sigma+2)
-    noise_image2 = noise_image2.to(device) #+ mean
+    #there is no 2. input -> generate one
+    if type(sigma) == int:
+        noise_image2, alpha = add_noise_snr(original, snr_db=sigma+2)
+        noise_image2 = noise_image2.to(device) #+ mean
+    #2. Input is conttained in sigma
+    else:
+        noise_image2 = sigma
     # Denoise image
     denoised = model(noise_images)
     loss_function = torch.nn.MSELoss()
-    return loss_function(denoised, noise_image2), denoised, noise_image2
+    return loss_function(denoised, noise_image2), denoised
 
 
 def n2score(noise_images, sigma_min, sigma_max, q, device, model, methode): #q=batchindex/dataset
@@ -114,8 +119,12 @@ def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, 
     lr = 0
     ud = 0
     est_sigma_opt = -1
-    if methode == "n2noise":
-        loss, denoised, noise_image2 = n2noise(original, noise_images, sigma, device, model)
+    if "n2noise" in methode:
+        if "2_input" in methode:
+            noise_image2, alpha = add_noise_snr(original, snr_db=5) #alpha = 0.25
+            loss, denoised = n2noise(original, noise_images, noise_image2, device, model)
+        else:
+            loss, denoised = n2noise(original, noise_images, sigma, device, model)
     elif methode == "n2score":
         loss, denoised = n2score(noise_images, sigma_min=0.01, sigma_max=0.3, q=batch_idx/len(dataLoader), 
                                                         device=device, model=model, methode=methode)

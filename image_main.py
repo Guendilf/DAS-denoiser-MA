@@ -110,7 +110,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
             with torch.no_grad():
                 loss, _, _, _, optional_tuples = calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation, lambda_inv=lambda_inv, dropout_rate=dropout_rate)
                 (_, _, _, est_sigma_opt) = optional_tuples
-                if methode == "n2noise":
+                if "n2noise" in methode:
                     denoised = model (noise_images)            
                 elif methode == "n2score":
                     true_sigma_score.append(true_noise_sigma)
@@ -151,9 +151,25 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                     #n = torch.cat((n, n_partition), dim=0)
                     n=n_partition
 
-                    #if batch_idx == len(dataLoader) -1:
-                    #loss_inv = loss_inv / len(dataLoader)
-                    est_sigma_opt = estimate_opt_sigma(noise_images, denoised, kmc=10, l_in=loss_inv, l_ex=loss_ex, n=n).item()
+                    if "score" in methode:
+                        try_sigmas = torch.linspace(0.1, 1.5, 61)
+                        quality_metric = []
+                        for i in try_sigmas:
+                            
+                            _, simple_out, _, _ = noise2info(noise_images, model, device, i)
+                            #simple_out = (simple_out + 1) / 2
+                            simple_out = (simple_out-simple_out.min())  / (simple_out.max() - simple_out.min())
+                            quality_metric += [Metric.tv_norm(simple_out).item()]
+                        
+                        try_sigmas = try_sigmas.numpy()
+                        quality_metric = np.array(quality_metric)
+                        best_idx = np.argmin(quality_metric)
+                        #_ = quality_metric[best_idx]
+                        est_sigma_opt = try_sigmas[best_idx]
+                    else:
+                        #if batch_idx == len(dataLoader) -1:
+                        #loss_inv = loss_inv / len(dataLoader)
+                        est_sigma_opt = estimate_opt_sigma(noise_images, denoised, kmc=10, l_in=loss_inv, l_ex=loss_ex, n=n).item()
                     if est_sigma_opt < sigma_info:
                         sigma_info = est_sigma_opt
                     best_sigmas.append(est_sigma_opt)
@@ -196,7 +212,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
             for i in range(len(best_sigmas)):
                 writer.add_scalar('Validate estimated sigma', best_sigmas[i], epoch * len(dataLoader) + i)
             writer.add_scalar('Validation mean estimated', np.mean(best_sigmas), epoch )
-        else: #mode=="test":
+        if mode=="test":
             for i in range(len(best_sigmas)):
                 writer.add_scalar('Test estimated sigma', best_sigmas[i], epoch * len(dataLoader) + i)
             writer.add_scalar('Test estimated sigma', np.mean(best_sigmas), epoch)
@@ -227,8 +243,9 @@ def main(argv):
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
         device = "cuda:3"
-    methoden_liste = ["n2noise", "n2score", "n2self", "n2self j-invariant", "n2same batch", "n2info batch", "n2void"] #"self2self"
-    methoden_liste = ["n2info batch"]
+    methoden_liste = ["n2noise 1_input", "n2noise 2_input", "n2score", "n2self", "n2self j-invariant", "n2same batch", "n2info batch", "n2void"] #"self2self"
+    methoden_liste = ["n2info batch score"]
+    #methoden_liste = ["n2noise 2_input", "n2noise 1_input", "n2info batch", "n2info batch score", "n2same batch", "n2score"]
 
     layout = {
         "Training vs Validation": {
@@ -257,7 +274,7 @@ def main(argv):
         ])
     print("lade Datensätze ...")
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise)
-    dataset = torch.utils.data.Subset(dataset, list(range(6400)))
+    dataset = torch.utils.data.Subset(dataset, list(range(640)))
     #dataset = torch.utils.data.Subset(dataset, list(range(2)))
     
     dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=False, transform=transform_noise)
