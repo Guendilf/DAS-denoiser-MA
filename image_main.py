@@ -244,8 +244,7 @@ def main(argv):
     else:
         device = "cuda:3"
     methoden_liste = ["n2noise 1_input", "n2noise 2_input", "n2score", "n2self", "n2self j-invariant", "n2same batch", "n2info batch", "n2void"] #"self2self"
-    methoden_liste = ["n2info batch score"]
-    #methoden_liste = ["n2noise 2_input", "n2noise 1_input", "n2info batch", "n2info batch score", "n2same batch", "n2score"]
+    methoden_liste = ["n2noise 2_input", "n2noise 1_input"]
 
     layout = {
         "Training vs Validation": {
@@ -274,7 +273,7 @@ def main(argv):
         ])
     print("lade Datensätze ...")
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise)
-    dataset = torch.utils.data.Subset(dataset, list(range(640)))
+    dataset = torch.utils.data.Subset(dataset, list(range(6400)))
     #dataset = torch.utils.data.Subset(dataset, list(range(2)))
     
     dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=False, transform=transform_noise)
