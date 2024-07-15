@@ -316,6 +316,12 @@ def main(argv):
         bestPsnr_val = -100
         bestSim = -100
         bestSim_val = -100
+        avg_train_psnr = []
+        avg_val_psnr = []
+        avg_test_psnr = []
+        avg_train_sim = []
+        avg_val_sim = []
+        avg_test_sim = []
         store_path = log_files()
         writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
         writer.add_custom_scalars(layout)
@@ -371,12 +377,16 @@ def main(argv):
             print("Loss: ", loss_val[-1])
             print("Epochs highest PSNR: ", max(psnr_val))
             print("Epochs highest Sim: ", max(similarity_val))
+            avg_train_psnr.append(Metric.avg_list(psnr))
+            avg_train_sim.append(Metric.avg_list(similarity))
+            avg_val_psnr.append(Metric.avg_list(psnr_val))
+            avg_val_sim.append(Metric.avg_list(similarity_val))
             writer.add_scalar("loss/train", Metric.avg_list(loss), epoch)
             writer.add_scalar("loss/validation", Metric.avg_list(loss_val), epoch)
-            writer.add_scalar("PSNR/train", Metric.avg_list(psnr), epoch)
-            writer.add_scalar("PSNR/validation", Metric.avg_list(psnr_val), epoch)
-            writer.add_scalar("sim/train", Metric.avg_list(similarity), epoch)
-            writer.add_scalar("sim/validation", Metric.avg_list(similarity_val), epoch)
+            writer.add_scalar("PSNR/train", avg_train_psnr[-1], epoch)
+            writer.add_scalar("PSNR/validation", avg_val_psnr[-1], epoch)
+            writer.add_scalar("sim/train", avg_train_sim[-1], epoch)
+            writer.add_scalar("sim/validation", avg_val_sim[-1], epoch)
         
             if math.isnan(loss[-1]):
                 model_save_path = os.path.join(store_path, "models", "NaN.txt")
@@ -399,9 +409,13 @@ def main(argv):
         writer.add_scalar("Loss Test", Metric.avg_list(loss_test), 0)
         writer.add_scalar("Sim Test", Metric.avg_list(similarity_test), 0)
 
-        end_results[methode] = [loss[-1], bestPsnr, bestSim, bestPsnr_val, bestSim_val, round(max(psnr_test),3), round(max(similarity_test),3)]
+        end_results[methode] = [loss[-1], bestPsnr, avg_train_psnr[-1], round(bestSim,3), round(avg_train_sim[-1],3),
+                                bestPsnr_val, avg_val_psnr[-1], round(bestSim_val,3), round(avg_val_sim[-1],3),
+                                round(max(psnr_test),3), round(max(similarity_test),3)]
 
-    end_results.index = ['Loss', 'PSNR Training', 'SIM Training', 'PSNR Validation', 'SIM Validation', 'PSNR Test', 'SIM Test']
+    end_results.index = ['Loss', 'Max PSNR Training', 'Avg PSNR last Training' 'SIM Training', 'Avg SIM last Training',
+                         'PSNR Validation', 'Avg PSNR last Training', 'SIM Validation', 'Avg SIM last Validation',
+                         'PSNR Test', 'SIM Test']
 
     #show_logs(loss, psnr, value_loss, value_psnr, similarity)
     end_results.to_csv(os.path.join(store_path, "result_tabel.csv"))
