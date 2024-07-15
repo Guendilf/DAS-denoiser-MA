@@ -9,7 +9,7 @@ def n2noise(original, noise_images, sigma, device, model):
     #noise_image2 = add_norm_noise(original, sigma+0.3, min_value, max_value, a=-1, b=1)
     #there is no 2. input -> generate one
     if type(sigma) == int:
-        noise_image2, alpha = add_noise_snr(original, snr_db=sigma+2)
+        noise_image2, alpha = add_noise_snr(noise_images, snr_db=sigma+2)
         noise_image2 = noise_image2.to(device) #+ mean
     #2. Input is conttained in sigma
     else:
