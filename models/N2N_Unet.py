@@ -70,32 +70,39 @@ class N2N_Orig_Unet(nn.Module):
 
         self.net1 = nn.Sequential(
             nn.Conv2d(in_channels=self.input_chanels, out_channels=48, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(48),
             nn.LeakyReLU(0.1),
             nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(48),
             nn.LeakyReLU(0.1),
             nn.MaxPool2d(kernel_size=2, stride=2),         
         )
 
         self.net2 = nn.Sequential(
             nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(48),
             nn.LeakyReLU(0.1),
             nn.MaxPool2d(kernel_size=2, stride=2),  
         )
         self.net3 = nn.Sequential(
             nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(48),
             nn.LeakyReLU(0.1),
             nn.MaxPool2d(kernel_size=2, stride=2),  
         )
         self.net4 = nn.Sequential(
             nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(48),
             nn.LeakyReLU(0.1),
             nn.MaxPool2d(kernel_size=2, stride=2),  
         )
         self.net5 = nn.Sequential(
             nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(48),
             nn.LeakyReLU(0.1),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Conv2d(in_channels=48, out_channels=48, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(48),
             nn.LeakyReLU(0.1),
             nn.Upsample(scale_factor=2, mode='nearest'),  
         )
@@ -104,36 +111,46 @@ class N2N_Orig_Unet(nn.Module):
 
         self.net6 = nn.Sequential(
             nn.Conv2d(in_channels=96, out_channels=96, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(96),
             nn.LeakyReLU(0.1),
             nn.Conv2d(in_channels=96, out_channels=96, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(96),
             nn.LeakyReLU(0.1),
             nn.Upsample(scale_factor=2, mode='nearest'),  
         )
         self.net7 = nn.Sequential(
             nn.Conv2d(in_channels=144, out_channels=96, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(96),
             nn.LeakyReLU(0.1),
             nn.Conv2d(in_channels=96, out_channels=96, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(96),
             nn.LeakyReLU(0.1),
             nn.Upsample(scale_factor=2, mode='nearest'),  
         )
         self.net8 = nn.Sequential(
             nn.Conv2d(in_channels=144, out_channels=96, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(96),
             nn.LeakyReLU(0.1),
             nn.Conv2d(in_channels=96, out_channels=96, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(96),
             nn.LeakyReLU(0.1),
             nn.Upsample(scale_factor=2, mode='nearest'),  
         )
         self.net9 = nn.Sequential(
             nn.Conv2d(in_channels=144, out_channels=96, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(96),
             nn.LeakyReLU(0.1),
             nn.Conv2d(in_channels=96, out_channels=96, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(96),
             nn.LeakyReLU(0.1),
             nn.Upsample(scale_factor=2, mode='nearest'),  
         )
         self.net10 = nn.Sequential(
             nn.Conv2d(in_channels=96+self.input_chanels, out_channels=64, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(64),
             nn.LeakyReLU(0.1),
             nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(32),
             nn.LeakyReLU(0.1),
             nn.Conv2d(in_channels=32, out_channels=self.output_chanels, kernel_size=3, padding='same'),
             nn.LeakyReLU(0.1),
@@ -288,40 +305,43 @@ class U_Net_origi(nn.Module):
 
 #angepasst an 128x128 bilder
 class U_Net(nn.Module):
-    def __init__(self, in_chanel = 3, batchNorm=False, skipLast=True):
+    def __init__(self, in_chanel = 3, first_out_chanel=64, scaling_kernel_size=2, batchNorm=False, skipLast=True):
         """
         Args:
             in_chanel: Input chanels, default = 3
+            first_out_chanel: First Output Chanel Size, default = 64
+            scaling_kernel_size: kernel_size and stride for Maxpool2d and upsampling with ConvTranspose2d. Change for DAS to (1,2), defaullt = 2
             batchhNorm: activate batchnorm in doubleConv-Layer, default = False
             skipLast: should the last skip connection (in the boottom of thhe U-Net pictre) be active, default = True
         """
         super(U_Net, self).__init__()
         
         self.skipLast = skipLast
-        self.encoder1 = doubleConv(in_chanel, 64, batchNorm)
+        self.scaling_kernel_size = scaling_kernel_size
+        self.encoder1 = doubleConv(in_chanel, first_out_chanel, batchNorm)
         
         self.encoder2 = nn.Sequential(
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            doubleConv(64, 128, batchNorm),
+            nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            doubleConv(first_out_chanel, first_out_chanel*2, batchNorm),
         )
         self.encoder3 = nn.Sequential(
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            doubleConv(128, 256, batchNorm),
+            nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            doubleConv(first_out_chanel*2, first_out_chanel*4, batchNorm),
         )
         self.encoder4 = nn.Sequential(
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            doubleConv(256, 512, batchNorm),
+            nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            doubleConv(first_out_chanel*4, first_out_chanel*8, batchNorm),
         )
         self.encoder5 = nn.Sequential(
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            doubleConv(512, 1024, batchNorm),
+            nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            doubleConv(first_out_chanel*8, first_out_chanel*16, batchNorm),
         )
 
-        self.decoder1 = Up(1024, 512, batchNorm, skipConnection=self.skipLast)
-        self.decoder2 = Up(512, 256, batchNorm)
-        self.decoder3 = Up(256, 128, batchNorm)
-        self.decoder4 = Up(128,64, batchNorm)
-        self.final_conv = nn.Conv2d(64, in_chanel, kernel_size=1)
+        self.decoder1 = Up(first_out_chanel*16, first_out_chanel*8, scaling_kernel_size, batchNorm, skipConnection=self.skipLast)
+        self.decoder2 = Up(first_out_chanel*8, first_out_chanel*4, scaling_kernel_size, batchNorm)
+        self.decoder3 = Up(first_out_chanel*4, first_out_chanel*2, scaling_kernel_size, batchNorm)
+        self.decoder4 = Up(first_out_chanel*2,first_out_chanel, scaling_kernel_size, batchNorm)
+        self.final_conv = nn.Conv2d(first_out_chanel, in_chanel, kernel_size=1)
         self.apply(layer_init)
 
     def forward(self, x):
@@ -347,10 +367,10 @@ class U_Net(nn.Module):
 class Up(nn.Module):
     """Upscaling then double conv"""
 
-    def __init__(self, in_channel, out_channel, batchNorm, skipConnection=True):
+    def __init__(self, in_channel, out_channel, scaling_kernel_size, batchNorm, skipConnection=True):
         super().__init__()
 
-        self.up = nn.ConvTranspose2d(in_channel, in_channel // 2, kernel_size=2, stride=2)
+        self.up = nn.ConvTranspose2d(in_channel, in_channel // 2, kernel_size=scaling_kernel_size, stride=scaling_kernel_size)
         if skipConnection == True:
             self.conv = doubleConv(in_channel, out_channel, batchNorm)
         else: 
