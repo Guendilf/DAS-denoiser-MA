@@ -39,6 +39,11 @@ max_Epochs = 20
 max_Predictions = 100 #für self2self um reconstruktion zu machen
 torch.manual_seed(42)
 
+def get_lr_lambda(initial_lr, step_size, lr_decrement):
+    def lr_lambda(step):
+        return max(0.0, initial_lr - (step // step_size) * lr_decrement / initial_lr)
+    return lr_lambda
+
 def evaluateSigma(noise_image, vector):
     sigmas = torch.linspace(0.1, 0.7, 61)
     quality_metric = []
@@ -184,6 +189,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            #scheduler.step()
 
         #log Data
         denoised = (denoised-denoised.min())  / (denoised.max() - denoised.min())
@@ -244,7 +250,7 @@ def main(argv):
     else:
         device = "cuda:3"
     methoden_liste = ["n2noise 1_input", "n2noise 2_input", "n2score", "n2self", "n2self j-invariant", "n2same batch", "n2info batch", "n2void"] #"self2self"
-    methoden_liste = ["n2noise 2_input", "n2noise 1_input"]
+    methoden_liste = ["n2noise 1_input", "n2noise 2_input"]
 
     layout = {
         "Training vs Validation": {
@@ -303,14 +309,19 @@ def main(argv):
             if methode == "n2score" or methode == "n2void" or "batch" in methode:
                 model = U_Net(batchNorm=True).to(device)
             #model = Cut2Self(mask).to(device)
+            elif "n2same" in methode:
+                model = U_Net(first_out_chanel=96, batchNorm=True).to(device)
             elif "self2self" in methode:
                 model = P_U_Net(in_chanel=3, batchNorm=False, dropout=0.3).to(device)
             else:
                 model = U_Net().to(device)
+        configAtr = getattr(config, methode) #config.methode wobei methode ein string ist
         if "self2self" in methode:
-            optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+            optimizer = torch.optim.Adam(model.parameters(), lr=configAtr['lr'])
         else:
-            optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
+            optimizer = torch.optim.Adam(model.parameters(), lr=configAtr['lr'])
+        #lr_lambda = get_lr_lambda(configAtr['lr'], configAtr['changeLR_steps'], configAtr['changeLR_rate'])
+        #scheduler = LambdaLR(optimizer, lr_lambda)
         bestPsnr = -100
         bestPsnr_val = -100
         bestSim = -100
@@ -412,7 +423,7 @@ def main(argv):
                                 bestPsnr_val, avg_val_psnr[-1], round(bestSim_val,3), round(avg_val_sim[-1],3),
                                 round(max(psnr_test),3), round(max(similarity_test),3)]
 
-    end_results.index = ['Loss', 'Max PSNR Training', 'Avg PSNR last Training' 'SIM Training', 'Avg SIM last Training',
+    end_results.index = ['Loss', 'Max PSNR Training', 'Avg PSNR last Training', 'SIM Training', 'Avg SIM last Training',
                          'PSNR Validation', 'Avg PSNR last Training', 'SIM Validation', 'Avg SIM last Validation',
                          'PSNR Test', 'SIM Test']
 

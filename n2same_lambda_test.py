@@ -65,11 +65,6 @@ def saveModel_pictureComparison(model, len_dataloader, methode, mode, store, epo
             else:
                 f = open(model_save_path, "x")
                 f.close()
-        if methode == "n2void" and mode == "train":
-            skip = int(denoised.shape[0] / batch) #64=ursprüngllichhe Batchgröße
-            denoised = denoised[::skip] # zeige nur jedes 6. Bild an (im path wird aus einem bild 6 wenn die Batchhgröße = 64)
-            original = original[::skip]
-            noise_images = noise_images[::skip]
         comparison = torch.cat((original[:4], denoised[:4], noise_images[:4]), dim=0)
         grid = make_grid(comparison, nrow=4, normalize=False).cpu()
         if mode == "train":
@@ -122,8 +117,6 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
             #original, noise_images are only important if n2void
             original_void = original
             loss, denoised, original, noise_images, optional_tuples = calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation, lambda_inv=lambda_inv, dropout_rate=dropout_rate, sigma_info=sigma_info)
-            if "n2info" in methode and batch_idx == len(dataLoader):
-                (_,_,sigma_info, est_sigma_opt) = optional_tuples
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -157,7 +150,7 @@ def main(argv):
     else:
         device = "cuda:3"
 
-    lambdas = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    lambdas = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2, 2.1, 2.2, 2.3, 2.4, 2.5]
 
     layout = {
         "Training vs Validation": {
@@ -211,10 +204,10 @@ def main(argv):
         else:
             #model = TestNet(3,3).to(device)
 
-            model = U_Net(batchNorm=True).to(device)
+            model = U_Net(first_out_chanel=96, batchNorm=True).to(device)
             
         
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
+        optimizer = torch.optim.Adam(model.parameters(), lr=config.n2same['lr'])
         bestPsnr = -100
         bestPsnr_val = -100
         bestSim = -100

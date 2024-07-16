@@ -66,6 +66,8 @@ methode = dict(
         skip_first_connection = True,
         featurLayer = 96,
         lambda_inv=2,
+        changeLR_steps = 5000,
+        changeLR_rate = -0.5,
 
         augmentation = False,
         dropout_rate=0,

@@ -51,7 +51,7 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
     return loss_function(denoised_pixel, target_pixel), denoised, patches, clean_patches
 
 def n2same(noise_images, device, model, lambda_inv=2):
-    mask, marked_points = Mask.mask_random(noise_images, maskamount=0.05, mask_size=(1,1))
+    mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
     mask = mask.to(device)
     masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
     masked_input = masked_input + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask ) #deleted pixels will be gausian noise with sigma=0.2 as in appendix D
@@ -121,7 +121,7 @@ def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, 
     est_sigma_opt = -1
     if "n2noise" in methode:
         if "2_input" in methode:
-            noise_image2, alpha = add_noise_snr(original, snr_db=5) #alpha = 0.25
+            noise_image2, alpha = add_noise_snr(original, snr_db=sigma) #alpha = 0.25
             loss, denoised = n2noise(original, noise_images, noise_image2, device, model)
         else:
             loss, denoised = n2noise(original, noise_images, sigma, device, model)
