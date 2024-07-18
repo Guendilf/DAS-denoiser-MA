@@ -148,9 +148,9 @@ def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, 
         original = original_patches
     elif "n2same"  in methode:
         #normalise Data as in github
-        mean_noise = noise_images.mean(dim=[0,2,3])
-        std_noise = noise_images.std(dim=[0,2,3])
-        noise_images = (noise_images - mean_noise[None, :, None, None]) / std_noise[None, :, None, None]
+        #mean_noise = noise_images.mean(dim=[0,2,3])
+        #std_noise = noise_images.std(dim=[0,2,3])
+        #noise_images = (noise_images - mean_noise[None, :, None, None]) / std_noise[None, :, None, None]
 
         loss, denoised, denoised_mask = n2same(noise_images, device, model, lambda_inv=lambda_inv)
     elif "self2self" in methode:

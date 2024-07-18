@@ -93,11 +93,16 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
     n = torch.tensor([]).reshape(0, 3*128*128).to(device) #n like in n2info for estimate sigma
     loss_ex = 0
     loss_inv = 0
+    true_noise_sigma_values = []
     for batch_idx, (original, label) in enumerate(tqdm(dataLoader)):
         original = original.to(device)
+        mean = original.mean(dim=[0,2,3])
+        std = original.std(dim=[0,2,3])
+        original = (original - mean[None, :, None, None]) / std[None, :, None, None]
         batch = original.shape[0]
-        #noise_images = add_norm_noise(original, sigma, min_value, max_value, a=-1, b=1)
+        #noise_images = add_norm_noise(original, sigma, a=0, b=1, norm=False)
         noise_images, true_noise_sigma = add_noise_snr(original, snr_db=sigma)
+        true_noise_sigma_values.append(true_noise_sigma)
         noise_images = noise_images.to(device)
         #get specific values for training and validation
         if mode=="test" or mode =="validate":
@@ -106,9 +111,9 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                 loss, _, _, _, optional_tuples = calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation, lambda_inv=lambda_inv, dropout_rate=dropout_rate)
 
                 #calculate mean and std for each Image in batch in every chanal
-                mean = noise_images.mean(dim=[0,2,3])
-                std = noise_images.std(dim=[0,2,3])
-                noise_images = (noise_images - mean[None, :, None, None]) / std[None, :, None, None]
+                #mean = noise_images.mean(dim=[0,2,3])
+                #std = noise_images.std(dim=[0,2,3])
+                #noise_images = (noise_images - mean[None, :, None, None]) / std[None, :, None, None]
                 denoised = model(noise_images)
                 
 
@@ -134,6 +139,7 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
         #save model + picture
         bestPsnr = saveModel_pictureComparison(model, len(dataLoader), methode, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch)
         #log sigma value for noise2info
+        print(f"mean: {np.round(np.mean(true_noise_sigma_values),2)} - min: {np.round(np.min(true_noise_sigma_values),2)} - max: {np.round(np.max(true_noise_sigma_values),2)}")
         
     
     
@@ -207,7 +213,7 @@ def main(argv):
             model = U_Net(first_out_chanel=96, batchNorm=True).to(device)
             
         
-        optimizer = torch.optim.Adam(model.parameters(), lr=config.n2same['lr'])
+        optimizer = torch.optim.Adam(model.parameters(), lr=config.methode['n2same']['lr'])
         bestPsnr = -100
         bestPsnr_val = -100
         bestSim = -100
@@ -309,7 +315,7 @@ def main(argv):
                                 bestPsnr_val, avg_val_psnr[-1], round(bestSim_val,3), round(avg_val_sim[-1],3),
                                 round(max(psnr_test),3), round(max(similarity_test),3)]
 
-    end_results.index = ['Loss', 'Max PSNR Training', 'Avg PSNR last Training' 'SIM Training', 'Avg SIM last Training',
+    end_results.index = ['Loss', 'Max PSNR Training', 'Avg PSNR last Training', 'SIM Training', 'Avg SIM last Training',
                          'PSNR Validation', 'Avg PSNR last Training', 'SIM Validation', 'Avg SIM last Validation',
                          'PSNR Test', 'SIM Test']
 

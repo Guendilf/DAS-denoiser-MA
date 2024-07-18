@@ -14,7 +14,7 @@ class Metric:
         else:
             mse = np.mean((x-y)**2)
             psnr = 10 * np.log10((max_intensity ** 2) / mse)
-        return psnr
+        return np.round(psnr,3)
 
     def calculate_similarity(image1, image2):
         image1 = image1.cpu().detach().numpy()
@@ -27,7 +27,7 @@ class Metric:
             image2 = np.squeeze(image2)
             channel_axis = 0
         similarity_index, diff_image = sim(image1, image2, data_range=image_range, channel_axis=channel_axis, full=True)
-        return similarity_index, diff_image
+        return np.round(similarity_index,4), diff_image
     
     def tv_norm(x):
         """
