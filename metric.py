@@ -11,6 +11,7 @@ class Metric:
             if torch.is_tensor(y):
                 mse = torch.mean((x-y)**2)
                 psnr = 10 * torch.log10((max_intensity ** 2) / mse)
+                return torch.round(psnr, decimals=3)
         else:
             mse = np.mean((x-y)**2)
             psnr = 10 * np.log10((max_intensity ** 2) / mse)
