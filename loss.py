@@ -51,7 +51,25 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
     return loss_function(denoised_pixel, target_pixel), denoised, patches, clean_patches
 
 def n2same(noise_images, device, model, lambda_inv=2):
-    mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
+    #mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
+
+    total_area = noise_images.shape[1]*noise_images.shape[2]*noise_images.shape[3]
+    maskamount = int(np.round(0.005*total_area/1))
+    mask=[]
+    for _ in range(noise_images.shape[0]):
+        #num_pixels = img.shape[1] * img.shape[2] *img.shape[3]
+        # Erzeuge zufällige Indizes für die ausgewählten maskierten Pixel
+        masked_indices = torch.randperm(total_area)[:maskamount]
+        mask_img = torch.zeros(noise_images.shape[1], noise_images.shape[2], noise_images.shape[3])
+        # Pixel in Maske auf 1 setzen
+        mask_img.view(-1)[masked_indices] = 1
+        # Mache für alle Chanels
+        #mask = mask.unsqueeze(0).expand(1, -1, -1,-1)
+        mask.append(mask_img)
+    mask = torch.stack(mask)
+
+
+
     mask = mask.to(device)
     masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
     masked_input = masked_input + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask ) #deleted pixels will be gausian noise with sigma=0.2 as in appendix D
