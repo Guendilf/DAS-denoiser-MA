@@ -2,6 +2,7 @@
 
 
 #global:
+useSigma = True # use Sigmadb or Sigma for noise
 sigma = 0.4   #only normal distribution
 sigmadb = 2   # for SNR
 save_model = False
@@ -9,15 +10,16 @@ std_lr = 0.003
 
 #datasets
 celeba_dir = 'dataset/celeba_dataset'
-mnist_dir = 'dataset/mnist_dataset'
+mnist_dir  = 'dataset/mnist_dataset'
 
 #method std. config
-methode = dict(
+methodes = dict(
     n2noise = dict(
         lr = 0.003,
         batchNorm = False,
         dropout = 0,
         net = 'U_Net',
+        sheduler = False,
 
         augmentation = False,
         lambda_inv=-1,
@@ -28,6 +30,7 @@ methode = dict(
         batchNorm = False,
         dropout = 0,
         net = 'U_Net',
+        sheduler = False,
         erweiterung = 'j-invariant',
 
         radius = 3,
@@ -42,6 +45,7 @@ methode = dict(
         batchNorm = True,
         dropout = 0,
         net = 'U_Net',
+        sheduler = False,
 
         augmentation = False,
         lambda_inv=-1,
@@ -52,6 +56,7 @@ methode = dict(
         batchNorm = True,
         dropout = 0,
         net = 'U_Net',
+        sheduler = False,
 
         augmentation = True,
         lambda_inv=-1,
@@ -62,6 +67,7 @@ methode = dict(
         batchNorm = True,
         dropout = 0,
         net = 'U_Net',
+        sheduler = True,
 
         skip_first_connection = True,
         featurLayer = 96,
@@ -75,8 +81,9 @@ methode = dict(
     n2info = dict(
         lr = 0.0001,
         batchNorm = True,
-        dropout = 0.3,
+        dropout = 0,
         net = 'U_Net',
+        sheduler = False,
         validation_dataset_size = 100,
 
         predictions = 100,
@@ -90,9 +97,10 @@ methode = dict(
         batchNorm = False,
         dropout = 0.3,
         net = 'P_U_Net',
+        sheduler = False,
         augmentation = True,
 
         lambda_inv=-1,
-        dropout_rate=0,
+        dropout_rate=0, #for masking (optional)
     ),
 )

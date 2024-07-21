@@ -35,7 +35,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 max_Iteration = 2
-max_Epochs = 20
+max_Epochs = 1
 max_Predictions = 100 #für self2self um reconstruktion zu machen
 torch.manual_seed(42)
 
@@ -89,7 +89,7 @@ def saveModel_pictureComparison(model, len_dataloader, methode, mode, store, epo
 TRAIN FUNKTIONS
 """
 
-def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epoch, bestPsnr, writer, save_model, sigma_info, dropout_rate=0.3, lambda_inv=2, augmentation=True):
+def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode, store, epoch, bestPsnr, writer, save_model, sigma_info, dropout_rate=0.3, lambda_inv=2, augmentation=True):
     #mit lossfunktion aus "N2N(noiseToNoise)"
     #kabel ist gesplitet und ein Teil (src) wird im Model behandelt und der andere (target) soll verglichen werden
     loss_log = []
@@ -106,8 +106,11 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
     for batch_idx, (original, label) in enumerate(tqdm(dataLoader)):
         original = original.to(device)
         batch = original.shape[0]
-        #noise_images = add_norm_noise(original, sigma, min_value, max_value, a=-1, b=1)
-        noise_images, true_noise_sigma = add_noise_snr(original, snr_db=sigma)
+        if config.useSigma:
+            noise_images = add_norm_noise(original, sigma, a=-1, b=1, norm=False)
+            true_noise_sigma = sigma
+        else:
+            noise_images, true_noise_sigma = add_noise_snr(original, snr_db=sigma)
         noise_images = noise_images.to(device)
         #get specific values for training and validation
         if mode=="test" or mode =="validate":
@@ -125,7 +128,8 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
                     all_tvs.append(best_tv)
                     denoised = noise_images + best_sigma**2 * vector
                 elif "n2self" in methode:
-                    if "j-invariant" in methode:
+                    #if "j-invariant" in methode:
+                    if "j-invariant" in config.methodes[methode]['erweiterung']:
                         denoised = Mask.n2self_jinv_recon(noise_images, model)
                     else:
                         denoised = model(noise_images)
@@ -189,7 +193,8 @@ def train(model, optimizer, device, dataLoader, methode, sigma, mode, store, epo
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            #scheduler.step()
+            if config.methodes[methode]['sheduler']:
+                scheduler.step()
 
         #log Data
         denoised = (denoised-denoised.min())  / (denoised.max() - denoised.min())
@@ -288,10 +293,12 @@ def main(argv):
 
     dataset_test = datasets.CelebA(root=celeba_dir, split='test', download=False, transform=transform_noise)
     dataset_test = torch.utils.data.Subset(dataset_test, list(range(640)))
+    #dataset_test = torch.utils.data.Subset(dataset_test, list(range(1)))
     
     print(f"Using {device} device")
     
-    for methode in methoden_liste:
+    #for methode in methoden_liste:
+    for methode, method_params in config.methodes.items():
         print(methode)
         if methode == "n2void":
             dataset = torch.utils.data.Subset(dataset, list(range(1056)))
@@ -305,23 +312,24 @@ def main(argv):
             #model = P_U_Net(in_chanel=3, batchNorm=True, dropout=0.3).to(device)
             #model = U_Net().to(device)
         else:
-            #model = TestNet(3,3).to(device)
-            if methode == "n2score" or methode == "n2void" or "batch" in methode:
-                model = U_Net(batchNorm=True).to(device)
-            #model = Cut2Self(mask).to(device)
-            elif "n2same" in methode:
-                model = U_Net(first_out_chanel=96, batchNorm=True).to(device)
+            #if methode == "n2score" or methode == "n2void" or "batch" in methode:
+                #model = U_Net(batchNorm=True).to(device)
+            if "n2same" in methode:
+                model = U_Net(first_out_chanel=96, batchNorm=method_params['batchNorm']).to(device)
             elif "self2self" in methode:
-                model = P_U_Net(in_chanel=3, batchNorm=False, dropout=0.3).to(device)
+                model = P_U_Net(in_chanel=3, batchNorm=method_params['batchNorm'], dropout=method_params['dropout']).to(device)
             else:
-                model = U_Net().to(device)
-        configAtr = getattr(config, methode) #config.methode wobei methode ein string ist
+                model = U_Net(batchNorm=method_params['batchNorm']).to(device)
+        #configAtr = getattr(config, methode) #config.methode wobei methode ein string ist
         if "self2self" in methode:
-            optimizer = torch.optim.Adam(model.parameters(), lr=configAtr['lr'])
+            optimizer = torch.optim.Adam(model.parameters(), lr=method_params['lr'])
         else:
-            optimizer = torch.optim.Adam(model.parameters(), lr=configAtr['lr'])
-        #lr_lambda = get_lr_lambda(configAtr['lr'], configAtr['changeLR_steps'], configAtr['changeLR_rate'])
-        #scheduler = LambdaLR(optimizer, lr_lambda)
+            optimizer = torch.optim.Adam(model.parameters(), lr=method_params['lr'])
+        if method_params['sheduler']:
+            lr_lambda = get_lr_lambda(method_params['lr'], method_params['changeLR_steps'], method_params['changeLR_rate'])
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+        else:
+            scheduler = None
         bestPsnr = -100
         bestPsnr_val = -100
         bestSim = -100
@@ -339,7 +347,7 @@ def main(argv):
 
         for epoch in tqdm(range(max_Epochs)):
             
-            loss, psnr, similarity, bestPsnr, sigma_info = train(model, optimizer, device, dataLoader, methode, sigma=sigma, mode="train", 
+            loss, psnr, similarity, bestPsnr, sigma_info = train(model, optimizer, scheduler, device, dataLoader, methode, sigma=sigma, mode="train", 
                                         store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer, save_model=save_model, 
                                         sigma_info=sigma_info, dropout_rate=0.3, lambda_inv=2, augmentation=True)
             
@@ -372,7 +380,7 @@ def main(argv):
                 #continue
                 
             #runing on Server
-            loss_val, psnr_val, similarity_val, bestPsnr_val, sigma_info = train(model, optimizer, device, dataLoader_validate, methode, sigma=sigma, mode="validate", 
+            loss_val, psnr_val, similarity_val, bestPsnr_val, sigma_info = train(model, optimizer, scheduler, device, dataLoader_validate, methode, sigma=sigma, mode="validate", 
                                                                     store=store_path, epoch=epoch, bestPsnr=bestPsnr_val, writer = writer, 
                                                                     save_model=save_model, sigma_info=sigma_info, dropout_rate=0.3, lambda_inv=2, augmentation=True)
 
@@ -412,7 +420,7 @@ def main(argv):
         
         if torch.cuda.device_count() == 1:
             continue
-        loss_test, psnr_test, similarity_test, _, _ = train(model, optimizer, device, dataLoader_test, methode, sigma=sigma, mode="test", 
+        loss_test, psnr_test, similarity_test, _, _ = train(model, optimizer, scheduler, device, dataLoader_test, methode, sigma=sigma, mode="test", 
                                                                     store=store_path, epoch=-1, bestPsnr=-1, writer = writer, 
                                                                     save_model=False, sigma_info=sigma_info, dropout_rate=0.3, lambda_inv=2, augmentation=True)
         writer.add_scalar("PSNR Test", Metric.avg_list(psnr_test), 0)

@@ -51,8 +51,8 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
     return loss_function(denoised_pixel, target_pixel), denoised, patches, clean_patches
 
 def n2same(noise_images, device, model, lambda_inv=2):
-    #mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
-
+    mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
+    """
     total_area = noise_images.shape[1]*noise_images.shape[2]*noise_images.shape[3]
     maskamount = int(np.round(0.005*total_area/1))
     mask=[]
@@ -67,7 +67,8 @@ def n2same(noise_images, device, model, lambda_inv=2):
         #mask = mask.unsqueeze(0).expand(1, -1, -1,-1)
         mask.append(mask_img)
     mask = torch.stack(mask)
-
+    marked_points = torch.sum(mask)
+    """
 
 
     mask = mask.to(device)
