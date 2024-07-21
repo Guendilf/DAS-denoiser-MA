@@ -121,8 +121,9 @@ def noise2info(noise_images, model, device, sigma_start):
     denoised_mask = model(masked_input)
     loss_inv = torch.mean((denoised-noise_images)**2)
     loss_ex = torch.sum(mask*(denoised-denoised_mask)**2)
-    loss = loss_inv + 2*sigma_start*(loss_ex/marked_points).sqrt() 
-    return loss, denoised, loss_inv, loss_ex
+    loss_ex = (loss_ex/marked_points).sqrt() 
+    loss = loss_inv + 2*sigma_start*loss_ex
+    return loss, denoised, loss_inv, loss_ex, marked_points
 
 def n2n_loss_for_das(denoised, target):
     loss_function = torch.nn.MSELoss()
@@ -176,7 +177,7 @@ def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, 
         loss, denoised, mask, lr, ud = self2self(noise_images, model, device, dropout_rate)
 
     elif "n2info" in methode:
-        loss, denoised, loss_inv, loss_ex = noise2info(noise_images, model, device, sigma_info)
+        loss, denoised, loss_inv, loss_ex, _ = noise2info(noise_images, model, device, sigma_info)
         #callculate new sigma at end of epoch
         """
         if batch_idx == len(dataLoader):
