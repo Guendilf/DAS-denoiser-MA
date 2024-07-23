@@ -150,35 +150,23 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                     denoised = (denoised+1)/2
                 elif "n2info" in methode:
                     #TODO: normalisierung ist in der implementation da, aber ich habe es noch nicht im training gefunden
+                    if batch_idx == 0:
+                        est_sigma_opt = estimate_opt_sigma_new(noise_images, dataLoader, model, device, sigma_info).item()
 
-                    _, denoised, loss_inv_tmp, loss_ex_tmp = noise2info(noise_images, model, device, sigma_info)
-                    loss_ex = loss_ex_tmp#+=
-                    loss_inv = loss_inv_tmp#+=
+                    _, denoised, loss_inv_tmp, loss_ex_tmp, _ = noise2info(noise_images, model, device, sigma_info)
+                    loss_ex += loss_ex_tmp#+=
+                    loss_inv += loss_inv_tmp#+=
 
                     n_partition = (denoised-noise_images).view(denoised.shape[0], -1) # (b, c*w*h)
                     n_partition = torch.sort(n_partition, dim=1).values
-                    #n = torch.cat((n, n_partition), dim=0)
-                    n=n_partition
+                    n = torch.cat((n, n_partition), dim=0)
+                    #n=n_partition
 
-                    if "score" in methode:
-                        try_sigmas = torch.linspace(0.1, 1.5, 61)
-                        quality_metric = []
-                        for i in try_sigmas:
-                            
-                            _, simple_out, _, _ = noise2info(noise_images, model, device, i)
-                            #simple_out = (simple_out + 1) / 2
-                            simple_out = (simple_out-simple_out.min())  / (simple_out.max() - simple_out.min())
-                            quality_metric += [Metric.tv_norm(simple_out).item()]
-                        
-                        try_sigmas = try_sigmas.numpy()
-                        quality_metric = np.array(quality_metric)
-                        best_idx = np.argmin(quality_metric)
-                        #_ = quality_metric[best_idx]
-                        est_sigma_opt = try_sigmas[best_idx]
-                    else:
-                        #if batch_idx == len(dataLoader) -1:
-                        #loss_inv = loss_inv / len(dataLoader)
+
+                    if batch_idx == len(dataLoader) -1:
+                        loss_inv = loss_inv / len(dataLoader)
                         est_sigma_opt = estimate_opt_sigma(noise_images, denoised, kmc=10, l_in=loss_inv, l_ex=loss_ex, n=n).item()
+
                     if est_sigma_opt < sigma_info:
                         sigma_info = est_sigma_opt
                     best_sigmas.append(est_sigma_opt)

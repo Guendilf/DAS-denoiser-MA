@@ -6,6 +6,8 @@ import os
 import shutil
 
 import torch
+import config
+from loss import noise2info
 
 
 def show_pictures_from_dataset (dataset, model=None, generation=0):
@@ -194,7 +196,7 @@ def estimate_opt_sigma(noise_images, denoised, kmc, l_in, l_ex, n):
     used for Noise2Info to determin a better suited sigma for loss calculation
     Args:
         moodel: the used torch model
-        noise_images (tensor): images withh noise with sahpe: (b,c,w,h)
+        noise_images (tensor): images with noise with sahpe: (b,c,w,h)
         samples: samples for Monte Carloo integration
         n: as in paper - it's an argument, because I have multiple batches that must be put together first
     Returns:
@@ -205,7 +207,7 @@ def estimate_opt_sigma(noise_images, denoised, kmc, l_in, l_ex, n):
     #n = torch.sort(n, dim=1).values #sort every batch
     m = denoised.shape[1]*denoised.shape[2]*denoised.shape[3]
     all_pixels = n.shape[0]*m
-    for i in range(kmc):# TODO: checken ob richhtiger wert aus k_mc
+    for i in range(config.methods['n2info']['predictions']):# TODO: checken ob richhtiger wert aus k_mc
         # sample uniform between 0 and max(pixel count in images) exacly "samples" pixels
         indices = torch.randperm(all_pixels)[:m]
         # transform n into vector view and extract the sampled values
@@ -214,7 +216,55 @@ def estimate_opt_sigma(noise_images, denoised, kmc, l_in, l_ex, n):
 
         
         e_l += torch.mean((n - sorted_values) ** 2)
-    e_l = e_l / kmc
+    e_l = e_l / config.methods['n2info']['predictions']
     #Equation 6
     sigma = l_ex + (l_ex**2 + all_pixels*(l_in-e_l)).sqrt()/all_pixels#TODO: e_l ist sehr groß und l_in sehr klein -> NaN weegen wurzel
     return sigma
+
+def estimate_opt_sigma_new(noise_images, dataLoader, model, device, sigma_info):
+    """
+    used for Noise2Info to determin a better suited sigma for loss calculation
+    Args:
+        noise_images (tensor): images used to extract shape (b,c,w,h)
+        dataLoader: to iterate over all pictures in the validation dataset
+        moodel: the used torch model
+        device: save tensors on cpu or gpu
+        sigma_info: used for calculation of losses (old best sigma value)
+    Returns:
+        estimated sigma value
+    """
+    loss_in = 0
+    loss_ex = 0
+    e_l = 0
+    all_marked_points = 0
+    batchsize = noise_images.shape[0]
+    dimension = noise_images.shpae[1]*noise_images.shpae[2]*noise_images.shpae[3]
+    all_pixels = len(dataLoader)*batchsize*dimension
+    n = torch.zeros(len(dataLoader)*batchsize, dimension)
+    for batch_idx, (original, label) in enumerate((dataLoader)):
+        if config.useSigma:
+            noise_images = add_norm_noise(original, config.sigma, a=-1, b=1, norm=False)
+            true_noise_sigma = config.sigma
+        else:
+            noise_images, true_noise_sigma = add_noise_snr(original, snr_db=config.sigmadb)
+        _, denoised, loss_inv_tmp, loss_ex_tmp, marked_points = noise2info(noise_images, model, device, sigma_info)
+        loss_in += loss_inv_tmp
+        loss_ex += loss_ex_tmp
+        all_marked_points += marked_points
+        #save every picture as vector in corresponding row of n
+        n[batch_idx*batchsize : batch_idx*batchsize + batchsize, :] = denoised.view(batchsize, -1)
+    loss_ex = loss_ex / all_marked_points
+    loss_in = loss_in / len(dataLoader)
+    for i in range(config.methods['n2info']['predictions']):
+        # sample uniform between 0 and max(pixel count in all images) exacly "dimension" pixels
+        indices = torch.randperm(all_pixels)[:dimension] #dimension = m in paper
+        # transform n into vector view and extract the sampled values
+        sampled_values = n.view(-1)[indices]
+        sorted_values = torch.sort(sampled_values).values #result from sort: [values, indices]
+
+        
+        e_l += torch.mean((n - sorted_values) ** 2)
+    e_l = e_l / config.methods['n2info']['predictions']
+    #estimated_sigma= loss_ex**0.5 + (loss_ex + loss_in - e_l)**0.5 # version from github https://github.com/dominatorX/Noise2Info-code/blob/master/network_keras.py#L106
+    estimated_sigma = loss_ex + (loss_ex**2 + dimension*(loss_in-e_l)).sqrt()/dimension #version from paper
+    return estimated_sigma
