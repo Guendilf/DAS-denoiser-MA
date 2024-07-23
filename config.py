@@ -98,10 +98,13 @@ methodes = dict(
         batchNorm = True,
         dropout = 0,
         net = 'U_Net',
-        sheduler = False,
+        sheduler = True,
         validation_dataset_size = 100,
 
+        featurLayer = 96,
         predictions = 100,
+        changeLR_steps = 5000,
+        changeLR_rate = -0.5,
 
         augmentation = False,
         lambda_inv=-1,
