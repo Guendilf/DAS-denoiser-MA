@@ -14,12 +14,27 @@ mnist_dir  = 'dataset/mnist_dataset'
 
 #method std. config
 methodes = dict(
-    n2noise = dict(
+    #in experiment there are two samples with the same noise level but independent noise
+    n2noise_2_input = dict(
         lr = 0.003,
         batchNorm = False,
         dropout = 0,
         net = 'U_Net',
         sheduler = False,
+
+        augmentation = False,
+        lambda_inv=-1,
+        dropout_rate=0,
+    ),
+    #in experiment there is only ONE sample
+    n2noise_1_input = dict(
+        lr = 0.003,
+        batchNorm = False,
+        dropout = 0,
+        net = 'U_Net',
+        sheduler = False,
+
+        secoundSigma = sigmadb+0.4 if useSigma else sigmadb+2,
 
         augmentation = False,
         lambda_inv=-1,
