@@ -174,7 +174,7 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
                         e_l = e_l / num_mc
                         estimated_sigma = (lin)**0.5 + (lin + lex-e_l)**0.5
                         print('new sigma_loss is ', estimated_sigma)
-                        if estimated_sigma < sigma_n:
+                        if 0 < estimated_sigma < sigma_n:
                             sigma_n = float(estimated_sigma)
                             print('sigma_loss updated to ', estimated_sigma)
                         writer.add_scalar('estimated sigma', estimated_sigma, epoch)
@@ -245,7 +245,7 @@ def main(argv):
             lr_lambda = get_lr_lambda(config.methodes[methode]['lr'], config.methodes[methode]['changeLR_steps'], config.methodes[methode]['changeLR_rate'])
             scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
             writer = SummaryWriter(log_dir=os.path.join(store_path, str(methode + ' ' + option) ,"tensorboard"))
-            
+
             for epoch in tqdm(range(max_epochs)):
                 loss, psnr = train(model, device, optimizer, scheduler, dataLoader, 'train', writer, rauschen=option, lambda_inv=2, epoch=epoch, methode=methode)
 

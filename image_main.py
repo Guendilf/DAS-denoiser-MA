@@ -44,6 +44,22 @@ def get_lr_lambda(initial_lr, step_size, lr_decrement):
         return max(0.0, initial_lr - (step // step_size) * lr_decrement / initial_lr)
     return lr_lambda
 
+def n2n_create_2_input(device, methode, original, noise_images):
+    if "2_input" in methode:
+        if config.useSigma:
+            noise_image2 = add_norm_noise(original, config.sigma, -1,-1,False)
+        else:
+            noise_image2, alpha = add_noise_snr(original, snr_db=config.sigmadb)
+        noise_image2 = noise_image2.to(device)
+    else:
+            #if config.useSigma:
+                #noise_image2 = add_norm_noise(noise_images, config.methodes['n2noise_1_input']['secoundSigma'], -1,-1,False)
+            #else:
+                #noise_image2, alpha = add_noise_snr(noise_images, snr_db=config.methodes['n2noise_1_input']['secoundSigma']) 
+        noise_image2 = add_norm_noise(noise_images, config.methodes['n2noise_1_input']['secoundSigma'], -1,-1,False)
+        noise_image2 = noise_image2.to(device)
+    return noise_image2#original, noise_images  are onlly if n2void
+
 def evaluateSigma(noise_image, vector):
     sigmas = torch.linspace(0.1, 0.7, 61)
     quality_metric = []
@@ -112,11 +128,15 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
         else:
             noise_images, true_noise_sigma = add_noise_snr(original, snr_db=sigma)
         noise_images = noise_images.to(device)
+        if "n2noise" in methode:
+            noise_images2 = n2n_create_2_input(device, methode, original, noise_images)
+        else:
+            noise_images2 = None
         #get specific values for training and validation
         if mode=="test" or mode =="validate":
             model.eval()
             with torch.no_grad():
-                loss, _, _, _, optional_tuples = calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation, lambda_inv=lambda_inv, dropout_rate=dropout_rate)
+                loss, _, _, _, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate)
                 (_, _, _, est_sigma_opt) = optional_tuples
                 if "n2noise" in methode:
                     denoised = model (noise_images)            
@@ -142,7 +162,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                 elif "self2self" in methode:
                     denoised = torch.ones_like(noise_images)
                     for i in range(max_Predictions):
-                        _, denoised_tmp, _, _, flip = calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation, lambda_inv=lambda_inv, dropout_rate=dropout_rate)
+                        _, denoised_tmp, _, _, flip = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate)
                         (lr, ud, _, _) = flip
                         #denoised_tmp = filp_lr_ud(denoised_tmp, lr, ud)
                         denoised = denoised + denoised_tmp
@@ -175,7 +195,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
             model.train()
             #original, noise_images are only important if n2void
             original_void = original
-            loss, denoised, original, noise_images, optional_tuples = calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation, lambda_inv=lambda_inv, dropout_rate=dropout_rate, sigma_info=sigma_info)
+            loss, denoised, original, noise_images, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, sigma_info=sigma_info)
             if "n2info" in methode and batch_idx == len(dataLoader):
                 (_,_,sigma_info, est_sigma_opt) = optional_tuples
             optimizer.zero_grad()
