@@ -238,7 +238,7 @@ def estimate_opt_sigma_new(noise_images, dataLoader, model, device, sigma_info):
     e_l = 0
     all_marked_points = 0
     batchsize = noise_images.shape[0]
-    dimension = noise_images.shpae[1]*noise_images.shpae[2]*noise_images.shpae[3]
+    dimension = noise_images.shape[1]*noise_images.shape[2]*noise_images.shape[3]
     all_pixels = len(dataLoader)*batchsize*dimension
     n = torch.zeros(len(dataLoader)*batchsize, dimension)
     for batch_idx, (original, label) in enumerate((dataLoader)):

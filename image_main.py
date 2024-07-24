@@ -35,7 +35,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 max_Iteration = 2
-max_Epochs = 1
+max_Epochs = 20
 max_Predictions = 100 #für self2self um reconstruktion zu machen
 torch.manual_seed(42)
 
