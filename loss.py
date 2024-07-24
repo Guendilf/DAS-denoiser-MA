@@ -2,18 +2,9 @@ from utils import *
 from masks import Mask
 from transformations import *
 import torch
+import config
 
-def n2noise(original, noise_images, sigma, device, model):
-    #src1 = add_gaus_noise(original, 0.5, sigma).to(device)
-    #schöner 1 Zeiler:
-    #noise_image2 = add_norm_noise(original, sigma+0.3, min_value, max_value, a=-1, b=1)
-    #there is no 2. input -> generate one
-    if type(sigma) == int:
-        noise_image2, alpha = add_noise_snr(noise_images, snr_db=sigma+2)
-        noise_image2 = noise_image2.to(device) #+ mean
-    #2. Input is conttained in sigma
-    else:
-        noise_image2 = sigma
+def n2noise(noise_images, noise_image2, model):
     # Denoise image
     denoised = model(noise_images)
     loss_function = torch.nn.MSELoss()
@@ -134,17 +125,28 @@ def n2n_loss_for_das(denoised, target):
 
 
 
-def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, batch_idx, original, noise_images, augmentation=True, 
-                   lambda_inv=2, dropout_rate=0.3, samples=10, num_patches_per_img=None, num_masked_pixels=8, sigma_info=1):
+def calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, augmentation=True, 
+                   dropout_rate=0.3, samples=10, num_patches_per_img=None, num_masked_pixels=8, sigma_info=1):
     lr = 0
     ud = 0
     est_sigma_opt = -1
     if "n2noise" in methode:
         if "2_input" in methode:
-            noise_image2, alpha = add_noise_snr(original, snr_db=sigma) #alpha = 0.25
-            loss, denoised = n2noise(original, noise_images, noise_image2, device, model)
+            if config.useSigma:
+                noise_image2 = add_norm_noise(original, config.sigma, -1,-1,False)
+            else:
+                noise_image2, alpha = add_noise_snr(original, snr_db=config.sigmadb)
+            noise_image2 = noise_image2.to(device)
+            loss, denoised = n2noise(noise_images, noise_image2, model)
         else:
-            loss, denoised = n2noise(original, noise_images, sigma, device, model)
+            #if config.useSigma:
+                #noise_image2 = add_norm_noise(noise_images, config.methodes['n2noise_1_input']['secoundSigma'], -1,-1,False)
+            #else:
+                #noise_image2, alpha = add_noise_snr(noise_images, snr_db=config.methodes['n2noise_1_input']['secoundSigma']) 
+            noise_image2 = add_norm_noise(noise_images, config.methodes['n2noise_1_input']['secoundSigma'], -1,-1,False)
+            noise_image2 = noise_image2.to(device)
+            loss, denoised = n2noise(noise_images, noise_image2, model)
+
     elif methode == "n2score":
         loss, denoised = n2score(noise_images, sigma_min=0.01, sigma_max=0.3, q=batch_idx/len(dataLoader), 
                                                         device=device, model=model, methode=methode)
@@ -172,7 +174,7 @@ def calculate_loss(model, device, dataLoader, methode, sigma, true_noise_sigma, 
         #std_noise = noise_images.std(dim=[0,2,3])
         #noise_images = (noise_images - mean_noise[None, :, None, None]) / std_noise[None, :, None, None]
 
-        loss, denoised, denoised_mask = n2same(noise_images, device, model, lambda_inv=lambda_inv)
+        loss, denoised, denoised_mask = n2same(noise_images, device, model, lambda_inv=config.methodes[methode]['lambda_inv'])
     elif "self2self" in methode:
         loss, denoised, mask, lr, ud = self2self(noise_images, model, device, dropout_rate)
 

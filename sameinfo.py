@@ -1,5 +1,4 @@
 import os
-import sys
 import time
 from tqdm import tqdm
 from skimage.metrics import structural_similarity as sim
@@ -15,7 +14,6 @@ from transformations import *
 import numpy as np
 import pandas as pd
 import torch
-import matplotlib.pyplot as plt
 import torchvision.datasets as datasets
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
@@ -24,9 +22,9 @@ import torchvision.transforms as transforms
 from absl import app
 from torch.utils.tensorboard import SummaryWriter
 
-num_mc = 1
+num_mc = 100
 sigma_n = 1
-max_epochs = 2
+max_epochs = 20
 
 def get_lr_lambda(initial_lr, step_size, lr_decrement):
     def lr_lambda(step):
@@ -115,6 +113,7 @@ def n2same(noise_images, device, model, mask, lambda_inv=2):
 
 
 def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rauschen, lambda_inv, epoch, methode):
+    global sigma_n
     losses = []
     psnr = []
     lex = 0
@@ -135,11 +134,15 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
             bernoulli_noised = np.where(np.random.uniform(0, 1, original.shape)<0.2, bernoulli_noise_map, gauss+poison)
             noise = np.clip(bernoulli_noised, 0, 255.0)
             noise_image = (torch.from_numpy(noise)/255.0).to(device).type(torch.float32)
+            original = original/255
         else:
             noise = (torch.rand_like(original*255.0)*0.4).type(torch.float32)
             noise_image = torch.clip(original*255.0 + noise, 0,255.0)/255.0
         original = original.to(device)
         noise_image = noise_image.to(device)
+        if "norm" in rauschen:
+            noise_image = (noise_image-noise_image.mean() / noise_image.std())
+            original = (original-original.mean() / original.std())
         if "train" in mode:
             loss, denoised, _, _, _ = n2same(noise_image, device, model, mask, lambda_inv)
             optimizer.zero_grad()
@@ -161,9 +164,11 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
                     if batch_idx == len(dataLoader)-1:
                         e_l = 0
                         for i in range(num_mc): #kmc
-                            samples = torch.tensor(torch.multinomial(n.view(-1), n.shape[1], replacement=True))#.view(1, n.shape[1])
-                            samples = torch.sort(samples).values
-                            e_l += torch.mean((n-samples)**2)
+                            #to big for torch.multinomial if all pictures from validation should be used
+                            #samples = torch.tensor(torch.multinomial(n.view(-1), n.shape[1], replacement=True))#.view(1, n.shape[1])
+                            #samples = torch.sort(samples).values
+                            samples = np.sort(np.random.choice((n.cpu()).reshape(-1),[1, n.shape[1]]))
+                            e_l += torch.mean((n-torch.from_numpy(samples).to(device))**2)
                         lex = lex / (len(dataLoader) * denoised.shape[0])
                         lin = lin / all_marked
                         e_l = e_l / num_mc
@@ -172,7 +177,7 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
                         if estimated_sigma < sigma_n:
                             sigma_n = float(estimated_sigma)
                             print('sigma_loss updated to ', estimated_sigma)
-                        writer.writer.add_scalar('estimated sigma', estimated_sigma, epoch)
+                        writer.add_scalar('estimated sigma', estimated_sigma, epoch)
             writer.add_scalar('Val loss', loss, epoch * len(dataLoader) + batch_idx)
             writer.add_scalar('Val psnr', Metric.calculate_psnr(original, denoised).item(), epoch * len(dataLoader) + batch_idx)
         else:
@@ -190,6 +195,7 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
           
 
 def main(argv):
+    global sigma_n
     if torch.cuda.device_count() == 1:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
@@ -197,9 +203,9 @@ def main(argv):
 
 
     celeba_dir = config.celeba_dir
-    methodeListe = ['n2same', 'n2info']
-    options = ['old', 'old new masking', 'komplex', 'komplex new masking']
-    end_results = pd.DataFrame(columns=methodeListe)
+    methodeListe = ['n2info', 'n2same']
+    options = ['old', 'old new masking', 'old norm', 'old norm new masking', 'komplex', 'komplex new masking', 'komplex norm', 'komplex norm new masking']
+    #end_results = pd.DataFrame(columns=methodeListe)
 
     
     transform_noise = transforms.Compose([
@@ -211,39 +217,44 @@ def main(argv):
     print("lade Datensätze ...")
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise)
     dataset = torch.utils.data.Subset(dataset, list(range(6400)))
-    dataset = torch.utils.data.Subset(dataset, list(range(32)))
+    #dataset = torch.utils.data.Subset(dataset, list(range(32)))
     
     dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=False, transform=transform_noise)
     dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(640)))
-    dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(32)))
+    #dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(32)))
 
     dataset_test = datasets.CelebA(root=celeba_dir, split='test', download=False, transform=transform_noise)
     dataset_test = torch.utils.data.Subset(dataset_test, list(range(640)))
-    dataset_test = torch.utils.data.Subset(dataset_test, list(range(32)))
+    #dataset_test = torch.utils.data.Subset(dataset_test, list(range(32)))
 
     store_path = log_files()
     for methode in methodeListe:
-        dataLoader = DataLoader(dataset, batch_size=32, shuffle=True)
-        dataLoader_validate = DataLoader(dataset_validate, batch_size=32, shuffle=False)
-        dataLoader_test = DataLoader(dataset_test, batch_size=32, shuffle=False)
-        if torch.cuda.device_count() == 1:
-            model = N2N_Orig_Unet(3,3).to(device) #default
-        else:
-            model = U_Net(first_out_chanel=96, batchNorm=True).to(device)
-        
-        optimizer = torch.optim.Adam(model.parameters(), lr=config.methodes[methode]['lr'])
-        lr_lambda = get_lr_lambda(config.methodes[methode]['lr'], config.methodes[methode]['changeLR_steps'], config.methodes[methode]['changeLR_rate'])
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
-        writer = SummaryWriter(log_dir=os.path.join(store_path ,"tensorboard"))
-
+        #if "n2info" in methode:
+            #dataset = torch.utils.data.Subset(dataset, list(range(960)))#960=30*battch_size
+            #dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(96)))
         for option in options:
-
+            dataLoader = DataLoader(dataset, batch_size=32, shuffle=True)
+            dataLoader_validate = DataLoader(dataset_validate, batch_size=32, shuffle=False)
+            dataLoader_test = DataLoader(dataset_test, batch_size=32, shuffle=False)
+            if torch.cuda.device_count() == 1:
+                model = N2N_Orig_Unet(3,3).to(device) #default
+            else:
+                model = U_Net(first_out_chanel=96, batchNorm=True).to(device)
+            
+            optimizer = torch.optim.Adam(model.parameters(), lr=config.methodes[methode]['lr'])
+            lr_lambda = get_lr_lambda(config.methodes[methode]['lr'], config.methodes[methode]['changeLR_steps'], config.methodes[methode]['changeLR_rate'])
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+            writer = SummaryWriter(log_dir=os.path.join(store_path, str(methode + ' ' + option) ,"tensorboard"))
+            
             for epoch in tqdm(range(max_epochs)):
                 loss, psnr = train(model, device, optimizer, scheduler, dataLoader, 'train', writer, rauschen=option, lambda_inv=2, epoch=epoch, methode=methode)
 
                 loss, psnr = train(model, device, optimizer, scheduler, dataLoader_validate, 'val', writer, rauschen=option, lambda_inv=2, epoch=epoch, methode=methode)
             
             loss, psnr = train(model, device, optimizer, scheduler, dataLoader_test, 'test', writer, rauschen=option, lambda_inv=2, epoch=0, methode=methode)
+
+            sigma_n = 1
+    print(str(datetime.now().replace(microsecond=0)).replace(':', '-'))
 
 
 
