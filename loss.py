@@ -44,25 +44,6 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
 
 def n2same(noise_images, device, model, lambda_inv=2):
     mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
-    """
-    total_area = noise_images.shape[1]*noise_images.shape[2]*noise_images.shape[3]
-    maskamount = int(np.round(0.005*total_area/1))
-    mask=[]
-    for _ in range(noise_images.shape[0]):
-        #num_pixels = img.shape[1] * img.shape[2] *img.shape[3]
-        # Erzeuge zufällige Indizes für die ausgewählten maskierten Pixel
-        masked_indices = torch.randperm(total_area)[:maskamount]
-        mask_img = torch.zeros(noise_images.shape[1], noise_images.shape[2], noise_images.shape[3])
-        # Pixel in Maske auf 1 setzen
-        mask_img.view(-1)[masked_indices] = 1
-        # Mache für alle Chanels
-        #mask = mask.unsqueeze(0).expand(1, -1, -1,-1)
-        mask.append(mask_img)
-    mask = torch.stack(mask)
-    marked_points = torch.sum(mask)
-    """
-
-
     mask = mask.to(device)
     masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
     masked_input = masked_input + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask ) #deleted pixels will be gausian noise with sigma=0.2 as in appendix D
@@ -99,23 +80,30 @@ def self2self(noise_images, model, device, dropout_rate):
     denoised = filp_lr_ud(denoised, flip_lr, flip_ud)
     return loss, denoised, mask, flip_lr, flip_ud
 
-def noise2info(noise_images, model, device, sigma_start):
-    #TODO: augmenttation
-    #TODO: ich glaube mask ist genauso wie bei n2same. Weil: Paper S.6 unten
-    #mask, marked_points = Mask.cut2self_mask((noise_images.shape[2],noise_images.shape[3]), noise_images.shape[0], mask_size=(1, 1), mask_percentage=0.005) #0,5% Piel maskieren
-    mask, marked_points = Mask.mask_random(noise_images, 0.005, mask_size=(1,1))
+def n2info(noise_images, model, device, sigma_n):
+    #"""
+    #OLD  masking
+    
+    if mask is None:
+        mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
+        mask = mask.to(device)
+        masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
+        masked_input = masked_input + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask ) #deleted pixels will be gausian noise with sigma=0.2 as in appendix D
+    else:
+    #"""
+        #original, _, mask = crop_augment_stratified_mask(original, (noise_images.shape[-1],noise_images.shape[-2]), 0.5, augmentation=False)
+        pass
     mask = mask.to(device)
-    #mask = mask.unsqueeze(1)  # (b, 1, w, h)
-    #mask = mask.expand(-1, noise_images.shape[1], -1, -1) # (b, 3, w, h)
-    masked_input = (1-mask) * noise_images
+    marked_points = torch.sum(mask)
+    masked_input = (1-mask) * noise_images + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask)
 
     denoised = model(noise_images)
     denoised_mask = model(masked_input)
-    loss_inv = torch.mean((denoised-noise_images)**2)
-    loss_ex = torch.sum(mask*(denoised-denoised_mask)**2)
-    loss_ex = (loss_ex/marked_points).sqrt() 
-    loss = loss_inv + 2*sigma_start*loss_ex
-    return loss, denoised, loss_inv, loss_ex, marked_points
+    mse = torch.nn.MSELoss()
+    loss_rec = torch.mean((denoised-noise_images)**2) # mse(denoised, noise_images)
+    loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
+    loss = loss_rec + 2 *sigma_n* (loss_inv/marked_points).sqrt()
+    return loss, denoised, loss_rec, loss_inv, marked_points
 
 def n2n_loss_for_das(denoised, target):
     loss_function = torch.nn.MSELoss()
@@ -166,7 +154,7 @@ def calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_i
         loss, denoised, mask, lr, ud = self2self(noise_images, model, device, dropout_rate)
 
     elif "n2info" in methode:
-        loss, denoised, loss_inv, loss_ex, _ = noise2info(noise_images, model, device, sigma_info)
+        loss, denoised, loss_inv, loss_ex, _ = n2info(noise_images, model, device, sigma_info)
         #callculate new sigma at end of epoch
         """
         if batch_idx == len(dataLoader):

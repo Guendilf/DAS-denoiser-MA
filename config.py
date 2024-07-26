@@ -102,7 +102,7 @@ methodes = dict(
         validation_dataset_size = 100,
 
         featurLayer = 96,
-        predictions = 100,
+        predictions = 100, #kmc
         changeLR_steps = 5000,
         changeLR_rate = -0.5,
 

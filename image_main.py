@@ -15,7 +15,7 @@ from masks import Mask
 from models.P_Unet import P_U_Net
 from utils import *
 from transformations import *
-from loss import calculate_loss, noise2info
+from loss import calculate_loss, n2same,  n2info
 
 import numpy as np
 import pandas as pd
@@ -130,9 +130,11 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
         noise_images = noise_images.to(device)
         if "n2noise" in methode:
             noise_images2 = n2n_create_2_input(device, methode, original, noise_images)
+            noise_images2 = torch.clip(noise_images2, 0,1.0)
         else:
             noise_images2 = None
-        #get specific values for training and validation
+        noise_images = torch.clip(noise_images, 0,1.0)
+
         if mode=="test" or mode =="validate":
             model.eval()
             with torch.no_grad():
@@ -140,7 +142,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                 (_, _, _, est_sigma_opt) = optional_tuples
                 if "n2noise" in methode:
                     denoised = model (noise_images)            
-                elif methode == "n2score":
+                elif "n2score"  in methode:
                     true_sigma_score.append(true_noise_sigma)
                     vector =  model(noise_images)
                     best_tv, best_sigma = evaluateSigma(noise_images, vector)
@@ -153,11 +155,14 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                         denoised = Mask.n2self_jinv_recon(noise_images, model)
                     else:
                         denoised = model(noise_images)
-                elif "n2void" in methode or "n2same" in methode:
+                elif "n2same" in methode:
+                    denoised = model(noise_images)
+                elif "n2void" in methode:
                     #calculate mean and std for each Image in batch in every chanal
-                    mean = noise_images.mean(dim=[0,2,3])
-                    std = noise_images.std(dim=[0,2,3])
-                    noise_images = (noise_images - mean[None, :, None, None]) / std[None, :, None, None]
+                    #mean = noise_images.mean(dim=[0,2,3])
+                    #std = noise_images.std(dim=[0,2,3])
+                    #noise_images = (noise_images - mean[None, :, None, None]) / std[None, :, None, None]
+                    noise_images = (noise_images - noise_images.mean(dim=(1, 2), keepdim=True)) / noise_images.std(dim=(1, 2), keepdim=True)
                     denoised = model(noise_images)
                 elif "self2self" in methode:
                     denoised = torch.ones_like(noise_images)
@@ -170,6 +175,8 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                     denoised = (denoised+1)/2
                 elif "n2info" in methode:
                     #TODO: normalisierung ist in der implementation da, aber ich habe es noch nicht im training gefunden
+                    """
+                    !Old version
                     if batch_idx == 0:
                         est_sigma_opt = estimate_opt_sigma_new(noise_images, dataLoader, model, device, sigma_info).item()
 
@@ -190,14 +197,41 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                     if est_sigma_opt < sigma_info:
                         sigma_info = est_sigma_opt
                     best_sigmas.append(est_sigma_opt)
+                    """
+                    if mode=="test":
+                        denoised = model(noise_images)
+                    else:
+                        #loss, denoised, loss_rec, loss_inv, marked_pixel = n2same(noise_images, device, model, lambda_inv)
+                        loss, denoised, loss_rec, loss_inv, marked_pixel = n2info(noise_images, model, device, sigma_info)
+                        all_marked += marked_pixel
+                        lex += loss_rec
+                        lin += loss_inv
+                        n_partition = (denoised-noise_images).view(denoised.shape[0], -1) # (b, c*w*h)
+                        n_partition = torch.sort(n_partition, dim=1).values
+                        n = torch.cat((n, n_partition), dim=0)
+                        if batch_idx == len(dataLoader)-1:
+                            e_l = 0
+                            for i in range(config.methodes['n2info']['predictions']): #kmc
+                                #to big for torch.multinomial if all pictures from validation should be used
+                                #samples = torch.tensor(torch.multinomial(n.view(-1), n.shape[1], replacement=True))#.view(1, n.shape[1])
+                                #samples = torch.sort(samples).values
+                                samples = np.sort(np.random.choice((n.cpu()).reshape(-1),[1, n.shape[1]]))
+                                e_l += torch.mean((n-torch.from_numpy(samples).to(device))**2)
+                            lex = lex / (len(dataLoader) * denoised.shape[0])
+                            lin = lin / all_marked
+                            e_l = e_l / config.methodes['n2info']['predictions']
+                            estimated_sigma = (lin)**0.5 + (lin + lex-e_l)**0.5
+                            print('new sigma_loss is ', estimated_sigma)
+                            if 0 < estimated_sigma < sigma_info:
+                                sigma_info = float(estimated_sigma)
+                                print('sigma_loss updated to ', estimated_sigma)
+                            writer.add_scalar('estimated sigma', estimated_sigma, epoch)
 
         else:
             model.train()
             #original, noise_images are only important if n2void
             original_void = original
             loss, denoised, original, noise_images, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, sigma_info=sigma_info)
-            if "n2info" in methode and batch_idx == len(dataLoader):
-                (_,_,sigma_info, est_sigma_opt) = optional_tuples
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -205,9 +239,9 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                 scheduler.step()
 
         #log Data
-        denoised = (denoised-denoised.min())  / (denoised.max() - denoised.min())
-        noise_images = (noise_images-noise_images.min())  / (noise_images.max() - noise_images.min())
-        original = (original-original.min())  / (original.max() - original.min())
+        #denoised = (denoised-denoised.min())  / (denoised.max() - denoised.min())
+        #noise_images = (noise_images-noise_images.min())  / (noise_images.max() - noise_images.min())
+        #original = (original-original.min())  / (original.max() - original.min())
         psnr_batch = Metric.calculate_psnr(original, denoised)
         similarity_batch, diff_picture = Metric.calculate_similarity(original, denoised)
         loss_log.append(loss.item())
@@ -216,16 +250,8 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
 
         #save model + picture
         bestPsnr = saveModel_pictureComparison(model, len(dataLoader), methode, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch)
-        #log sigma value for noise2info
-        """
-        if "n2info" in methode and batch_idx == len(dataLoader)-1:
-            #if mode=="train":
-                #writer.add_scalar('Train estimated sigma', est_sigma_opt, epoch * len(dataLoader) + batch_idx)
-            if mode=="validate":
-                writer.add_scalar('Validate estimated sigma', est_sigma_opt, epoch)
-            #else: #mode=="test":
-                #writer.add_scalar('Test estimated sigma', est_sigma_opt, 1 * len(dataLoader) + batch_idx)
-        """
+    #log sigma value for noise2info
+    """
     if (mode=="test" or mode =="validate") and ("n2info" in methode):
         if mode=="validate":
             for i in range(len(best_sigmas)):
@@ -235,7 +261,8 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
             for i in range(len(best_sigmas)):
                 writer.add_scalar('Test estimated sigma', best_sigmas[i], epoch * len(dataLoader) + i)
             writer.add_scalar('Test estimated sigma', np.mean(best_sigmas), epoch)
-    
+    """
+    #log sigma value for n2score
     if (mode=="test" or mode =="validate") and ("n2score" in methode):
         ture_sigma_line = np.mean(true_sigma_score)
         if mode == "validate":
@@ -279,7 +306,8 @@ def main(argv):
 
     celeba_dir = config.celeba_dir
 
-    end_results = pd.DataFrame(columns=methoden_liste)
+    #end_results = pd.DataFrame(columns=methoden_liste)
+    end_results = pd.DataFrame(config.methodes.keys())
 
     
     transform_noise = transforms.Compose([
@@ -288,20 +316,17 @@ def main(argv):
         #transforms.Resize((512,512)), #for self2self
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.float()),
-        transforms.Lambda(lambda x:  x * 2 -1),
+        #transforms.Lambda(lambda x:  x * 2 -1),
         ])
     print("lade Datensätze ...")
     dataset = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise)
     dataset = torch.utils.data.Subset(dataset, list(range(6400)))
-    #dataset = torch.utils.data.Subset(dataset, list(range(2)))
     
     dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=False, transform=transform_noise)
     dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(640)))
-    #dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(1)))
 
     dataset_test = datasets.CelebA(root=celeba_dir, split='test', download=False, transform=transform_noise)
     dataset_test = torch.utils.data.Subset(dataset_test, list(range(640)))
-    #dataset_test = torch.utils.data.Subset(dataset_test, list(range(1)))
     
     print(f"Using {device} device")
     
@@ -320,8 +345,6 @@ def main(argv):
             #model = P_U_Net(in_chanel=3, batchNorm=True, dropout=0.3).to(device)
             #model = U_Net().to(device)
         else:
-            #if methode == "n2score" or methode == "n2void" or "batch" in methode:
-                #model = U_Net(batchNorm=True).to(device)
             if "n2same" in methode:
                 model = U_Net(first_out_chanel=96, batchNorm=method_params['batchNorm']).to(device)
             elif "self2self" in methode:
@@ -329,10 +352,7 @@ def main(argv):
             else:
                 model = U_Net(batchNorm=method_params['batchNorm']).to(device)
         #configAtr = getattr(config, methode) #config.methode wobei methode ein string ist
-        if "self2self" in methode:
-            optimizer = torch.optim.Adam(model.parameters(), lr=method_params['lr'])
-        else:
-            optimizer = torch.optim.Adam(model.parameters(), lr=method_params['lr'])
+        optimizer = torch.optim.Adam(model.parameters(), lr=method_params['lr'])
         if method_params['sheduler']:
             lr_lambda = get_lr_lambda(method_params['lr'], method_params['changeLR_steps'], method_params['changeLR_rate'])
             scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)

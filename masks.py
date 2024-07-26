@@ -153,6 +153,49 @@ class Mask:
                 memory.append((new_x, new_y))
                 bearbeitete_Bilder[batch, chanel, x, y] = data[batch, chanel, new_x, new_y]
         return bearbeitete_Bilder
+    
+    
+
+    def crop_augment_stratified_mask(sources, patch_size, mask_perc, augment=False):
+        """
+        Stratified sampling translated for pytorch use from Noise2Void: https://github.com/juglab/n2v
+        """
+
+        def get_patch(source):
+            valid_shape = source.shape[1:3] - np.array(patch_size)  # Assume source shape is (C, H, W)
+            if any([s <= 0 for s in valid_shape]): #True if patch_size == Picture_size
+                if augment:
+                    source_patch = augment_patch(source)
+                else:
+                    source_patch = source
+            else:
+                x = np.random.randint(0, valid_shape[0] + 1)
+                y = np.random.randint(0, valid_shape[1] + 1)
+                coords = [x,y]
+                s = tuple([slice(0, source.shape[0])] + [slice(coord, coord + size) for coord, size in zip(coords, patch_size)])
+                if augment:
+                    source_patch = augment_patch(source[s])
+                else:
+                    source_patch = source[s]
+
+            mask = np.zeros_like(source_patch)
+            for c in range(source.shape[0]):
+                boxsize = np.round(np.sqrt(100 / mask_perc))
+                maskcoords = get_stratified_coords2D(rand_float_coords2D(boxsize), box_size=boxsize, shape=patch_size)
+                indexing = (c,) + maskcoords
+                mask[indexing] = 1.0
+            return source_patch, np.random.normal(0, 0.2, source_patch.shape), mask
+
+        patches = [get_patch(source) for source in sources] #list from tensor
+        source_patches, nooise_input, mask = zip(*patches)
+        source_patches = [torch.from_numpy(arr.copy()) for arr in source_patches]
+        source_patches = torch.stack(source_patches)
+        nooise_input = [torch.from_numpy(arr) for arr in nooise_input]
+        nooise_input = torch.stack(nooise_input)
+        mask = [torch.from_numpy(arr) for arr in mask]
+        mask = torch.stack(mask)
+
+        return source_patches, nooise_input, mask
         
 
     
@@ -209,3 +252,26 @@ def jinv_recon(noise_image, model, grid_size, mode, infer_single_pass, include_m
         net_output = model(net_input)
         acc_tensor = acc_tensor + (net_output * mask).to(noise_image.device)#.cpu()
     return acc_tensor
+
+def augment_patch(patch):
+        patch = np.rot90(patch, k=np.random.randint(4), axes=(1, 2))
+        patch = np.flip(patch, axis=-2) if np.random.randint(2) else patch
+        return patch
+
+def get_stratified_coords2D(coord_gen, box_size, shape):
+    box_count_y = int(np.ceil(shape[0] / box_size))
+    box_count_x = int(np.ceil(shape[1] / box_size))
+    x_coords = []
+    y_coords = []
+    for i in range(box_count_y):
+        for j in range(box_count_x):
+            y, x = coord_gen
+            y = int(i * box_size + y)
+            x = int(j * box_size + x)
+            if (y < shape[0] and x < shape[1]):
+                y_coords.append(y)
+                x_coords.append(x)
+    return (y_coords, x_coords)
+
+def rand_float_coords2D(boxsize):
+    return (np.random.rand() * boxsize, np.random.rand() * boxsize)

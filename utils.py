@@ -7,7 +7,7 @@ import shutil
 
 import torch
 import config
-from loss import noise2info
+from loss import n2info
 
 
 def show_pictures_from_dataset (dataset, model=None, generation=0):
@@ -247,7 +247,8 @@ def estimate_opt_sigma_new(noise_images, dataLoader, model, device, sigma_info):
             true_noise_sigma = config.sigma
         else:
             noise_images, true_noise_sigma = add_noise_snr(original, snr_db=config.sigmadb)
-        _, denoised, loss_inv_tmp, loss_ex_tmp, marked_points = noise2info(noise_images, model, device, sigma_info)
+        noise_images = noise_images.to(device)
+        _, denoised, loss_inv_tmp, loss_ex_tmp, marked_points = n2info(noise_images, model, device, sigma_info)
         loss_in += loss_inv_tmp
         loss_ex += loss_ex_tmp
         all_marked_points += marked_points
