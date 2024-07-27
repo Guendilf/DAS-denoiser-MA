@@ -16,7 +16,7 @@ def n2score(noise_images, sigma_min, sigma_max, q, device, model, methode): #q=b
     u = torch.randn_like(noise_images).to(device)
     sigma_a = sigma_max*(1-q) + sigma_min*q
     vectorMap = model(noise_images+sigma_a*u)
-    loss = torch.mean((sigma_a * vectorMap + u)**2)
+    loss = torch.mean((sigma_a * vectorMap + u)**2)#depends on methode (whatt noise to use in tweedie)
     return loss, vectorMap
 
 
@@ -29,10 +29,14 @@ def n2self(noise_image, batch_idx, model):
 
 def n2void(original_images, noise_images, model, device, num_patches_per_img, windowsize, num_masked_pixels, augmentation):
     patches, clean_patches = generate_patches_from_list(noise_images, original_images, num_patches_per_img=num_patches_per_img, augment=augmentation)
-    mask  = Mask.n2void_mask(patches, num_masked_pixels=8).to(device)
-    #mask, num_masked_pixels_total = Mask.mask_random(patches, 8, mask_size=(1,1))
-    #mask = mask.to(device)
-    masked_noise = Mask.exchange_in_mask_with_pixel_in_window(mask, patches, windowsize, num_masked_pixels)
+
+    total_pixels = patches.shape[-1] * patches.shape[-2]
+    masked_pixels_percentage = (num_masked_pixels / total_pixels) * 100
+    _, _, mask = Mask.crop_augment_stratified_mask(patches, (patches.shape[-1], patches.shape[-2]), masked_pixels_percentage, augmentation=False)
+    mask = mask.to(device)
+
+    #mask  = Mask.n2void_mask(patches, num_masked_pixels=8).to(device)
+    masked_noise = Mask.exchange_in_mask_with_pixel_in_window(mask, patches, windowsize, num_masked_pixels=torch.sum(mask))
     
     denoised = model(masked_noise)
     denoised_pixel = denoised * mask
@@ -43,10 +47,15 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
     return loss_function(denoised_pixel, target_pixel), denoised, patches, clean_patches
 
 def n2same(noise_images, device, model, lambda_inv=2):
-    mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
+    #old
+    #mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
+    #new
+    _,_,mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-1],noise_images.shape[-2]), 0.5, augmentation=False)
+    marked_points = torch.sum(mask)
+
     mask = mask.to(device)
-    masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
-    masked_input = masked_input + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask ) #deleted pixels will be gausian noise with sigma=0.2 as in appendix D
+    masked_input = (1-mask) * noise_images + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask)
+    
     denoised = model(noise_images)
     denoised_mask = model(masked_input)
     mse = torch.nn.MSELoss()
@@ -58,7 +67,11 @@ def n2same(noise_images, device, model, lambda_inv=2):
 def self2self(noise_images, model, device, dropout_rate):
     
     #my methode idea:
-    mask, marked_points = Mask.mask_random(noise_images, 0.5, (1,1))
+    #mask, marked_points = Mask.mask_random(noise_images, 0.5, (1,1))
+    #new starfield methode
+    _,_,mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-1],noise_images.shape[-2]), 5, augmentation=False)#mask 50%
+    marked_points = torch.sum(mask)
+
     mask = mask.to(device)
     mask = (1-mask)
     """
@@ -81,7 +94,7 @@ def self2self(noise_images, model, device, dropout_rate):
     return loss, denoised, mask, flip_lr, flip_ud
 
 def n2info(noise_images, model, device, sigma_n):
-    #"""
+    """
     #OLD  masking
     
     if mask is None:
@@ -90,9 +103,8 @@ def n2info(noise_images, model, device, sigma_n):
         masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
         masked_input = masked_input + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask ) #deleted pixels will be gausian noise with sigma=0.2 as in appendix D
     else:
-    #"""
-        #original, _, mask = crop_augment_stratified_mask(original, (noise_images.shape[-1],noise_images.shape[-2]), 0.5, augmentation=False)
-        pass
+    """
+    _, _, mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-1],noise_images.shape[-2]), 0.5, augmentation=False)
     mask = mask.to(device)
     marked_points = torch.sum(mask)
     masked_input = (1-mask) * noise_images + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask)

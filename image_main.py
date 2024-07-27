@@ -7,7 +7,7 @@ from pathlib import Path
 from tqdm import tqdm
 from skimage.metrics import structural_similarity as sim
 
-import config
+import config_test as config
 
 from models.N2N_Unet import N2N_Unet_DAS, N2N_Orig_Unet, Cut2Self, U_Net_origi, U_Net, TestNet
 from metric import Metric
@@ -35,7 +35,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 max_Iteration = 2
-max_Epochs = 20
+max_Epochs = 2
 max_Predictions = 100 #für self2self um reconstruktion zu machen
 torch.manual_seed(42)
 
@@ -50,14 +50,12 @@ def n2n_create_2_input(device, methode, original, noise_images):
             noise_image2 = add_norm_noise(original, config.sigma, -1,-1,False)
         else:
             noise_image2, alpha = add_noise_snr(original, snr_db=config.sigmadb)
-        noise_image2 = noise_image2.to(device)
     else:
-            #if config.useSigma:
-                #noise_image2 = add_norm_noise(noise_images, config.methodes['n2noise_1_input']['secoundSigma'], -1,-1,False)
-            #else:
-                #noise_image2, alpha = add_noise_snr(noise_images, snr_db=config.methodes['n2noise_1_input']['secoundSigma']) 
-        noise_image2 = add_norm_noise(noise_images, config.methodes['n2noise_1_input']['secoundSigma'], -1,-1,False)
-        noise_image2 = noise_image2.to(device)
+        if config.useSigma:
+            noise_image2 = add_norm_noise(noise_images, config.methodes['n2noise_1_input']['secoundSigma'], -1,-1,False)
+        else:
+            noise_image2, alpha = add_noise_snr(noise_images, snr_db=config.methodes['n2noise_1_input']['secoundSigma']) 
+    noise_image2 = noise_image2.to(device)
     return noise_image2#original, noise_images  are onlly if n2void
 
 def evaluateSigma(noise_image, vector):
@@ -130,6 +128,8 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
         noise_images = noise_images.to(device)
         if "n2noise" in methode:
             noise_images2 = n2n_create_2_input(device, methode, original, noise_images)
+            if "test" in methode:
+                noise_images2 = add_norm_noise(original, config.methodes['n2noise_2_input_test']['secoundSigma'], a=-1, b=1, norm=False)
             noise_images2 = torch.clip(noise_images2, 0,1.0)
         else:
             noise_images2 = None
@@ -300,14 +300,13 @@ def main(argv):
         },
     }
     #writer = None
-    sigma = config.sigma
-    sigma = config.sigmadb
+    sigma = config.sigma if config.useSigma else config.sigmadb
     save_model = config.save_model #save models as pth
 
     celeba_dir = config.celeba_dir
 
     #end_results = pd.DataFrame(columns=methoden_liste)
-    end_results = pd.DataFrame(config.methodes.keys())
+    end_results = pd.DataFrame(columns=config.methodes.keys())
 
     
     transform_noise = transforms.Compose([
@@ -319,14 +318,12 @@ def main(argv):
         #transforms.Lambda(lambda x:  x * 2 -1),
         ])
     print("lade Datensätze ...")
-    dataset = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise)
-    dataset = torch.utils.data.Subset(dataset, list(range(6400)))
+    dataset_all = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise)
     
-    dataset_validate = datasets.CelebA(root=celeba_dir, split='valid', download=False, transform=transform_noise)
-    dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(640)))
+    dataset_validate_all = datasets.CelebA(root=celeba_dir, split='valid', download=False, transform=transform_noise)
 
-    dataset_test = datasets.CelebA(root=celeba_dir, split='test', download=False, transform=transform_noise)
-    dataset_test = torch.utils.data.Subset(dataset_test, list(range(640)))
+    dataset_test_all = datasets.CelebA(root=celeba_dir, split='test', download=False, transform=transform_noise)
+
     
     print(f"Using {device} device")
     
@@ -334,9 +331,13 @@ def main(argv):
     for methode, method_params in config.methodes.items():
         print(methode)
         if methode == "n2void":
-            dataset = torch.utils.data.Subset(dataset, list(range(1056)))
-            dataset_validate = torch.utils.data.Subset(dataset_validate, list(range(128)))
-            dataset_test = torch.utils.data.Subset(dataset_test, list(range(128)))
+            dataset = torch.utils.data.Subset(dataset_all, list(range(1056)))
+            dataset_validate = torch.utils.data.Subset(dataset_validate_all, list(range(128)))
+            dataset_test = torch.utils.data.Subset(dataset_test_all, list(range(128)))
+        else:
+            dataset = torch.utils.data.Subset(dataset_all, list(range(6400)))
+            dataset_validate = torch.utils.data.Subset(dataset_validate_all, list(range(640)))
+            dataset_test = torch.utils.data.Subset(dataset_test_all, list(range(640)))
         dataLoader = DataLoader(dataset, batch_size=32, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=32, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=32, shuffle=False)
@@ -345,7 +346,7 @@ def main(argv):
             #model = P_U_Net(in_chanel=3, batchNorm=True, dropout=0.3).to(device)
             #model = U_Net().to(device)
         else:
-            if "n2same" in methode:
+            if "n2same" in methode or "n2info" in methode:
                 model = U_Net(first_out_chanel=96, batchNorm=method_params['batchNorm']).to(device)
             elif "self2self" in methode:
                 model = P_U_Net(in_chanel=3, batchNorm=method_params['batchNorm'], dropout=method_params['dropout']).to(device)
@@ -446,8 +447,8 @@ def main(argv):
             if round(max(similarity_val),3) > bestSim_val:
                 bestSim_val = round(max(similarity_val),3)
         
-        if torch.cuda.device_count() == 1:
-            continue
+        #if torch.cuda.device_count() == 1:
+            #continue
         loss_test, psnr_test, similarity_test, _, _ = train(model, optimizer, scheduler, device, dataLoader_test, methode, sigma=sigma, mode="test", 
                                                                     store=store_path, epoch=-1, bestPsnr=-1, writer = writer, 
                                                                     save_model=False, sigma_info=sigma_info, dropout_rate=0.3, lambda_inv=2, augmentation=True)
@@ -455,13 +456,29 @@ def main(argv):
         writer.add_scalar("Loss Test", Metric.avg_list(loss_test), 0)
         writer.add_scalar("Sim Test", Metric.avg_list(similarity_test), 0)
 
-        end_results[methode] = [loss[-1], bestPsnr, avg_train_psnr[-1], round(bestSim,3), round(avg_train_sim[-1],3),
-                                bestPsnr_val, avg_val_psnr[-1], round(bestSim_val,3), round(avg_val_sim[-1],3),
-                                round(max(psnr_test),3), round(max(similarity_test),3)]
+        end_results[methode] = [loss[-1], 
+                                bestPsnr, 
+                                avg_train_psnr[-1], 
+                                round(bestSim,3), 
+                                round(avg_train_sim[-1],3),
+                                bestPsnr_val, 
+                                avg_val_psnr[-1], 
+                                round(bestSim_val,3), 
+                                round(avg_val_sim[-1],3),
+                                round(max(psnr_test),3), 
+                                round(max(similarity_test),3)]
 
-    end_results.index = ['Loss', 'Max PSNR Training', 'Avg PSNR last Training', 'SIM Training', 'Avg SIM last Training',
-                         'PSNR Validation', 'Avg PSNR last Training', 'SIM Validation', 'Avg SIM last Validation',
-                         'PSNR Test', 'SIM Test']
+    end_results.index = ['Loss', 
+                         'Max PSNR Training', 
+                         'Avg PSNR last Training', 
+                         'SIM Training', 
+                         'Avg SIM last Training',
+                         'PSNR Validation', 
+                         'Avg PSNR last Training', 
+                         'SIM Validation', 
+                         'Avg SIM last Validation',
+                         'PSNR Test', 
+                         'SIM Test']
 
     #show_logs(loss, psnr, value_loss, value_psnr, similarity)
     end_results.to_csv(os.path.join(store_path, "result_tabel.csv"))
