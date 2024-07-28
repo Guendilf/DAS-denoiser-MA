@@ -35,9 +35,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 max_Iteration = 2
-max_Epochs = 2
+max_Epochs = 20
 max_Predictions = 100 #für self2self um reconstruktion zu machen
-torch.manual_seed(42)
+#torch.manual_seed(42)
 
 def get_lr_lambda(initial_lr, step_size, lr_decrement):
     def lr_lambda(step):
@@ -117,7 +117,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
     n = torch.tensor([]).reshape(0, 3*128*128).to(device) #n like in n2info for estimate sigma
     loss_ex = 0
     loss_inv = 0
-    for batch_idx, (original, label) in enumerate(tqdm(dataLoader)):
+    for batch_idx, (original, label) in enumerate((dataLoader)):#tqdm
         original = original.to(device)
         batch = original.shape[0]
         if config.useSigma:

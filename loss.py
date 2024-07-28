@@ -32,7 +32,7 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
 
     total_pixels = patches.shape[-1] * patches.shape[-2]
     masked_pixels_percentage = (num_masked_pixels / total_pixels) * 100
-    _, _, mask = Mask.crop_augment_stratified_mask(patches, (patches.shape[-1], patches.shape[-2]), masked_pixels_percentage, augmentation=False)
+    _, _, mask = Mask.crop_augment_stratified_mask(patches, (patches.shape[-1], patches.shape[-2]), masked_pixels_percentage, augment=False)
     mask = mask.to(device)
 
     #mask  = Mask.n2void_mask(patches, num_masked_pixels=8).to(device)
