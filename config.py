@@ -80,17 +80,7 @@ methodes = dict(
         lambda_inv=-1,
         dropout_rate=0,
     ),
-    n2void = dict(
-        lr = 0.0004,
-        batchNorm = True,
-        dropout = 0,
-        net = 'U_Net',
-        sheduler = False,
-
-        augmentation = True,
-        lambda_inv=-1,
-        dropout_rate=0,
-    ),
+    
     n2same = dict(
         lr = 0.0004, #TODO: verringere nachh 5.000 steps um 0.5
         batchNorm = True,
@@ -121,6 +111,17 @@ methodes = dict(
         changeLR_rate = -0.5,
 
         augmentation = False,
+        lambda_inv=-1,
+        dropout_rate=0,
+    ),
+    n2void = dict(
+        lr = 0.0004,
+        batchNorm = True,
+        dropout = 0,
+        net = 'U_Net',
+        sheduler = False,
+
+        augmentation = True,
         lambda_inv=-1,
         dropout_rate=0,
     ),

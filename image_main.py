@@ -7,7 +7,7 @@ from pathlib import Path
 from tqdm import tqdm
 from skimage.metrics import structural_similarity as sim
 
-import config_test as config
+import config as config
 
 from models.N2N_Unet import N2N_Unet_DAS, N2N_Orig_Unet, Cut2Self, U_Net_origi, U_Net, TestNet
 from metric import Metric
