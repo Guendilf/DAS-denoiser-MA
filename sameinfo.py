@@ -143,9 +143,9 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
         if "norm" in rauschen:
             noise_image = (noise_image-noise_image.mean() / noise_image.std())
             original = (original-original.mean() / original.std())
-        img_mean = noise_images.mean()
-        img_std = noise_images.std()
-        noise_images = (noise_images - img_mean) / img_std
+        img_mean = noise_image.mean()
+        img_std = noise_image.std()
+        noise_image = (noise_image - img_mean) / img_std
         if "train" in mode:
             loss, denoised, _, _, _ = n2same(noise_image, device, model, mask, lambda_inv)
             optimizer.zero_grad()
@@ -192,7 +192,7 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
             writer.add_scalar('Test psnr', Metric.calculate_psnr(original, denoised).item(), epoch * len(dataLoader) + batch_idx)
             loss = 0
         denoised = denoised * img_std + img_mean
-        noise_images = noise_images * img_std + img_mean
+        noise_image = noise_image * img_std + img_mean
         psnr.append(Metric.calculate_psnr(original, denoised))
         losses.append(loss)
 
