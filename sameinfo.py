@@ -178,6 +178,9 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
                             sigma_n = float(estimated_sigma)
                             print('sigma_loss updated to ', estimated_sigma)
                         writer.add_scalar('estimated sigma', estimated_sigma, epoch)
+                        writer.add_scalar('lex', lex, epoch)
+                        writer.add_scalar('lin', lin, epoch)
+                        writer.add_scalar('e_l', e_l, epoch)
             writer.add_scalar('Val loss', loss, epoch * len(dataLoader) + batch_idx)
             writer.add_scalar('Val psnr', Metric.calculate_psnr(original, denoised).item(), epoch * len(dataLoader) + batch_idx)
         else:
@@ -203,8 +206,9 @@ def main(argv):
 
 
     celeba_dir = config.celeba_dir
-    methodeListe = ['n2info', 'n2same']
-    options = ['old', 'old new masking', 'old norm', 'old norm new masking', 'komplex', 'komplex new masking', 'komplex norm', 'komplex norm new masking']
+    methodeListe = ['n2info']#, 'n2same']
+    #options = ['old', 'old new masking', 'old norm', 'old norm new masking', 'komplex', 'komplex new masking', 'komplex norm', 'komplex norm new masking']
+    options = ['old', 'old new masking']
     #end_results = pd.DataFrame(columns=methodeListe)
 
     
