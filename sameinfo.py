@@ -143,6 +143,9 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
         if "norm" in rauschen:
             noise_image = (noise_image-noise_image.mean() / noise_image.std())
             original = (original-original.mean() / original.std())
+        img_mean = noise_images.mean()
+        img_std = noise_images.std()
+        noise_images = (noise_images - img_mean) / img_std
         if "train" in mode:
             loss, denoised, _, _, _ = n2same(noise_image, device, model, mask, lambda_inv)
             optimizer.zero_grad()
@@ -159,7 +162,7 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
                     lex += loss_rec
                     lin += loss_inv
                     n_partition = (denoised-noise_image).view(denoised.shape[0], -1) # (b, c*w*h)
-                    n_partition = torch.sort(n_partition, dim=1).values
+                    n_partition = torch.sort(n_partition, dim=1).values #descending=False
                     n = torch.cat((n, n_partition), dim=0)
                     if batch_idx == len(dataLoader)-1:
                         e_l = 0
@@ -167,7 +170,7 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
                             #to big for torch.multinomial if all pictures from validation should be used
                             #samples = torch.tensor(torch.multinomial(n.view(-1), n.shape[1], replacement=True))#.view(1, n.shape[1])
                             #samples = torch.sort(samples).values
-                            samples = np.sort(np.random.choice((n.cpu()).reshape(-1),[1, n.shape[1]]))
+                            samples = np.sort(np.random.choice((n.cpu()).reshape(-1),[1, n.shape[1]])) #(1,49152)
                             e_l += torch.mean((n-torch.from_numpy(samples).to(device))**2)
                         lex = lex / (len(dataLoader) * denoised.shape[0])
                         lin = lin / all_marked
@@ -188,6 +191,8 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
                 denoised = model(noise_image)
             writer.add_scalar('Test psnr', Metric.calculate_psnr(original, denoised).item(), epoch * len(dataLoader) + batch_idx)
             loss = 0
+        denoised = denoised * img_std + img_mean
+        noise_images = noise_images * img_std + img_mean
         psnr.append(Metric.calculate_psnr(original, denoised))
         losses.append(loss)
 
@@ -203,6 +208,7 @@ def main(argv):
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
         device = "cuda:3"
+    device = "cpu"
 
 
     celeba_dir = config.celeba_dir

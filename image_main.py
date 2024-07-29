@@ -31,6 +31,7 @@ from absl import app
 from torch.utils.tensorboard import SummaryWriter
 #tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\Code\DAS-denoiser-MA\runs"      #PC
 #tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\runs"                           #vom Server
+#tensorboard --logdir="C:\Users\LaAlexPi\Documents\01_Uni\MA\runs\"                         #Laptop
 
 
 
@@ -108,6 +109,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
     #kabel ist gesplitet und ein Teil (src) wird im Model behandelt und der andere (target) soll verglichen werden
     loss_log = []
     psnr_log = []
+    original_psnr_log = []
     sim_log = []
     best_sigmas = []    #only for Score in validation + test
     all_tvs = []     #only for Score in validation + test
@@ -198,6 +200,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                         sigma_info = est_sigma_opt
                     best_sigmas.append(est_sigma_opt)
                     """
+                    
                     if mode=="test":
                         denoised = model(noise_images)
                     else:
@@ -226,11 +229,10 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                                 sigma_info = float(estimated_sigma)
                                 print('sigma_loss updated to ', estimated_sigma)
                             writer.add_scalar('estimated sigma', estimated_sigma, epoch)
-
+                        
         else:
             model.train()
             #original, noise_images are only important if n2void
-            original_void = original
             loss, denoised, original, noise_images, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, sigma_info=sigma_info)
             optimizer.zero_grad()
             loss.backward()
@@ -239,13 +241,15 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                 scheduler.step()
 
         #log Data
-        #denoised = (denoised-denoised.min())  / (denoised.max() - denoised.min())
-        #noise_images = (noise_images-noise_images.min())  / (noise_images.max() - noise_images.min())
-        #original = (original-original.min())  / (original.max() - original.min())
+        original_psnr_batch = Metric.calculate_psnr(original, denoised)
+        denoised = (denoised-denoised.min())  / (denoised.max() - denoised.min())
+        noise_images = (noise_images-noise_images.min())  / (noise_images.max() - noise_images.min())
+        original = (original-original.min())  / (original.max() - original.min())
         psnr_batch = Metric.calculate_psnr(original, denoised)
         similarity_batch, diff_picture = Metric.calculate_similarity(original, denoised)
         loss_log.append(loss.item())
         psnr_log.append(psnr_batch.item())
+        original_psnr_log.append(original_psnr_batch.item())
         sim_log.append(similarity_batch)
 
         #save model + picture
@@ -277,7 +281,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
             writer.add_scalar('Test tv', np.mean(best_tv), epoch)
     
     
-    return loss_log, psnr_log, sim_log, bestPsnr, sigma_info
+    return loss_log, psnr_log, sim_log, bestPsnr, sigma_info, original_psnr_log
 
 
 
@@ -324,11 +328,22 @@ def main(argv):
 
     dataset_test_all = datasets.CelebA(root=celeba_dir, split='test', download=False, transform=transform_noise)
 
+    #create folder for all methods that will be run
+    store_path = log_files()
     
     print(f"Using {device} device")
     
     #for methode in methoden_liste:
     for methode, method_params in config.methodes.items():
+
+        #create to folders for loging details
+        store_path = Path(os.path.join(store_path, methode))
+        store_path.mkdir(parents=True, exist_ok=True)
+        tmp = Path(os.path.join(store_path, "tensorboard"))
+        tmp.mkdir(parents=True, exist_ok=True)
+        tmp = Path(os.path.join(store_path, "models"))
+        tmp.mkdir(parents=True, exist_ok=True)
+
         print(methode)
         if methode == "n2void":
             dataset = torch.utils.data.Subset(dataset_all, list(range(1056)))
@@ -376,13 +391,14 @@ def main(argv):
 
         for epoch in tqdm(range(max_Epochs)):
             
-            loss, psnr, similarity, bestPsnr, sigma_info = train(model, optimizer, scheduler, device, dataLoader, methode, sigma=sigma, mode="train", 
+            loss, psnr, similarity, bestPsnr, sigma_info, original_psnr_log = train(model, optimizer, scheduler, device, dataLoader, methode, sigma=sigma, mode="train", 
                                         store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer, save_model=save_model, 
                                         sigma_info=sigma_info, dropout_rate=0.3, lambda_inv=2, augmentation=True)
             
             for i, loss_item in enumerate(loss):
                 writer.add_scalar('Train Loss', loss_item, epoch * len(dataLoader) + i)
                 writer.add_scalar('Train PSNR_iteration [0,1]', psnr[i], epoch * len(dataLoader) + i)
+                writer.add_scalar('Train Original PSNR (not normed)', original_psnr_log[i], epoch * len(dataLoader) + i)
                 writer.add_scalar('Train Similarity_iteration', similarity[i], epoch * len(dataLoader) + i)
             writer.add_scalar('Train PSNR [0,1] avg', Metric.avg_list(psnr), epoch)
             
@@ -409,13 +425,14 @@ def main(argv):
                 #continue
                 
             #runing on Server
-            loss_val, psnr_val, similarity_val, bestPsnr_val, sigma_info = train(model, optimizer, scheduler, device, dataLoader_validate, methode, sigma=sigma, mode="validate", 
+            loss_val, psnr_val, similarity_val, bestPsnr_val, sigma_info, original_psnr_log_val = train(model, optimizer, scheduler, device, dataLoader_validate, methode, sigma=sigma, mode="validate", 
                                                                     store=store_path, epoch=epoch, bestPsnr=bestPsnr_val, writer = writer, 
                                                                     save_model=save_model, sigma_info=sigma_info, dropout_rate=0.3, lambda_inv=2, augmentation=True)
 
             for i, loss_item in enumerate(loss_val):
                 writer.add_scalar('Validation Loss', loss_item, epoch * len(dataLoader) + i)
                 writer.add_scalar('Validation PSNR_iteration [0,1]', psnr_val[i], epoch * len(dataLoader) + i)
+                writer.add_scalar('Validation Original PSNR (not normed)', original_psnr_log_val[i], epoch * len(dataLoader) + i)
                 writer.add_scalar('Validation Similarity_iteration', similarity_val[i], epoch * len(dataLoader) + i)
             writer.add_scalar('Validation PSNR [0,1] avg', Metric.avg_list(psnr_val), epoch)
 
@@ -449,10 +466,11 @@ def main(argv):
         
         #if torch.cuda.device_count() == 1:
             #continue
-        loss_test, psnr_test, similarity_test, _, _ = train(model, optimizer, scheduler, device, dataLoader_test, methode, sigma=sigma, mode="test", 
+        loss_test, psnr_test, similarity_test, _, _, original_psnr_log_test = train(model, optimizer, scheduler, device, dataLoader_test, methode, sigma=sigma, mode="test", 
                                                                     store=store_path, epoch=-1, bestPsnr=-1, writer = writer, 
                                                                     save_model=False, sigma_info=sigma_info, dropout_rate=0.3, lambda_inv=2, augmentation=True)
         writer.add_scalar("PSNR Test", Metric.avg_list(psnr_test), 0)
+        writer.add_scalar("PSNR original (bot normed) Test", Metric.avg_list(original_psnr_log_val), 0)
         writer.add_scalar("Loss Test", Metric.avg_list(loss_test), 0)
         writer.add_scalar("Sim Test", Metric.avg_list(similarity_test), 0)
 
