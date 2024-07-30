@@ -173,8 +173,8 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
                         lin = lin / all_marked
                         e_l = e_l / num_mc
                         #estimated_sigma = (lin)**0.5 + (lin + lex-e_l)**0.5 #inplementation from original github of noise2info
-                        m = len(dataLoader) * denoised.shape[0] *3*128*128
-                        estimated_sigma = lex + (lex**2 * m (lin-e_l))**0.5/m
+                        m = len(dataLoader) * denoised.shape[0] *3*128*128 #TODO: is m right?
+                        estimated_sigma = lex + (lex**2 * m (lin-e_l))**0.5/m #from paper
                         print('new sigma_loss is ', estimated_sigma)
                         if 0 < estimated_sigma < sigma_n:
                             sigma_n = float(estimated_sigma)
@@ -190,8 +190,8 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
                 denoised = model(noise_image)
             writer.add_scalar('Test psnr', Metric.calculate_psnr(original, denoised).item(), epoch * len(dataLoader) + batch_idx)
             loss = 0
-        denoised = denoised * img_std + img_mean
-        noise_image = noise_image * img_std + img_mean
+        #denoised = denoised * img_std + img_mean
+        #noise_image = noise_image * img_std + img_mean
         psnr.append(Metric.calculate_psnr(original, denoised))
         losses.append(loss)
 
