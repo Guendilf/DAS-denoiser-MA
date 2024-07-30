@@ -127,6 +127,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
             true_noise_sigma = sigma
         else:
             noise_images, true_noise_sigma = add_noise_snr(original, snr_db=sigma)
+        writer.add_scalar('True Noise sigma', true_noise_sigma, epoch * len(dataLoader) + batch_idx)
         noise_images = noise_images.to(device)
         if "n2noise" in methode:
             noise_images2 = n2n_create_2_input(device, methode, original, noise_images)
@@ -384,7 +385,7 @@ def main(argv):
         avg_train_sim = []
         avg_val_sim = []
         avg_test_sim = []
-        store_path = log_files()
+        #store_path = log_files()
         writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
         writer.add_custom_scalars(layout)
         sigma_info = 1 #noise2Info starting pointt for estimated sigma

@@ -143,9 +143,6 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
         if "norm" in rauschen:
             noise_image = (noise_image-noise_image.mean() / noise_image.std())
             original = (original-original.mean() / original.std())
-        img_mean = noise_image.mean()
-        img_std = noise_image.std()
-        noise_image = (noise_image - img_mean) / img_std
         if "train" in mode:
             loss, denoised, _, _, _ = n2same(noise_image, device, model, mask, lambda_inv)
             optimizer.zero_grad()
@@ -175,7 +172,9 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
                         lex = lex / (len(dataLoader) * denoised.shape[0])
                         lin = lin / all_marked
                         e_l = e_l / num_mc
-                        estimated_sigma = (lin)**0.5 + (lin + lex-e_l)**0.5
+                        #estimated_sigma = (lin)**0.5 + (lin + lex-e_l)**0.5 #inplementation from original github of noise2info
+                        m = len(dataLoader) * denoised.shape[0] *3*128*128
+                        estimated_sigma = lex + (lex**2 * m (lin-e_l))**0.5/m
                         print('new sigma_loss is ', estimated_sigma)
                         if 0 < estimated_sigma < sigma_n:
                             sigma_n = float(estimated_sigma)

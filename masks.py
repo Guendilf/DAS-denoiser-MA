@@ -178,7 +178,11 @@ class Mask:
                 else:
                     source_patch = source[s]
 
-            mask = np.zeros_like(source_patch)
+            #TODO: chekce dass hier immer np funktioniert. Es gibt fehler bei n2same
+            if torch.is_tensor(source_patch):
+                mask = torch.zeros_like(source_patch)
+            else:
+                mask = np.zeros_like(source_patch)
             for c in range(source.shape[0]):
                 boxsize = np.round(np.sqrt(100 / mask_perc))
                 maskcoords = get_stratified_coords2D(rand_float_coords2D(boxsize), box_size=boxsize, shape=patch_size)

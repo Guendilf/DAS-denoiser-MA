@@ -2,7 +2,7 @@
 
 
 #global:
-useSigma = True # use Sigmadb or Sigma for noise
+useSigma = False # use Sigmadb or Sigma for noise
 sigma = 0.4   #only normal distribution
 sigmadb = 2   # for SNR
 save_model = False
