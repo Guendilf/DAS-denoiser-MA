@@ -139,19 +139,22 @@ class Mask:
         for pixel_idx in range(cords.shape[0]): #cords.shape=(batch*num_mask_pixel*chanel, 4)   geht alle gefundenen Koordinaten durch die nicht 0 sind in Maske
             batch, chanel, x, y = cords[pixel_idx]
             batch, chanel, x, y = batch.item(), chanel.item(), x.item(), y.item()
+            """
+            OLD: when you want the same pixel masked in all chanels
             if chanel != 0: #copy the same pixel as in chanel 0
                 new_x, new_y = memory[pixel_idx % num_masked_pixels]
                 bearbeitete_Bilder[batch, chanel, x, y] = data[batch, chanel, new_x, new_y]
             else: 
-                while True: 
-                    #      max ( 0, min(width-1, x + rand(-window/2, window/2+1)) )
-                    new_x = max(0, min(bearbeitete_Bilder.shape[2] - 1, x + torch.randint(-windowsize//2, windowsize//2 + 1, (1,)).item()))
-                    new_y = max(0, min(bearbeitete_Bilder.shape[2] - 1, y + torch.randint(-windowsize//2, windowsize//2 + 1, (1,)).item()))
-                    #don't replace with the same pixel
-                    if (new_x, new_y) != (x,y) or replaceWithIself:
-                        break
-                memory.append((new_x, new_y))
-                bearbeitete_Bilder[batch, chanel, x, y] = data[batch, chanel, new_x, new_y]
+            """
+            while True: 
+                #      max ( 0, min(width-1, x + rand(-window/2, window/2+1)) )
+                new_x = max(0, min(bearbeitete_Bilder.shape[2] - 1, x + torch.randint(-windowsize//2, windowsize//2 + 1, (1,)).item()))
+                new_y = max(0, min(bearbeitete_Bilder.shape[2] - 1, y + torch.randint(-windowsize//2, windowsize//2 + 1, (1,)).item()))
+                #don't replace with the same pixel
+                if (new_x, new_y) != (x,y) or replaceWithIself:
+                    break
+            memory.append((new_x, new_y))
+            bearbeitete_Bilder[batch, chanel, x, y] = data[batch, chanel, new_x, new_y]
         return bearbeitete_Bilder
     
     
@@ -200,14 +203,14 @@ class Mask:
 
     
 def select_random_pixels(image_shape, num_masked_pixels):
-    num_pixels = image_shape[1] * image_shape[2]
+    num_pixels = image_shape[0] * image_shape[1] * image_shape[2]
     # Erzeuge zufällige Indizes für die ausgewählten maskierten Pixel
     masked_indices = torch.randperm(num_pixels)[:num_masked_pixels]
-    mask = torch.zeros(image_shape[1], image_shape[2])
+    mask = torch.zeros(image_shape[0], image_shape[1], image_shape[2])
     # Pixel in Maske auf 1 setzen
     mask.view(-1)[masked_indices] = 1
     # Mache für alle Chanels
-    mask = mask.unsqueeze(0).expand(image_shape[0], -1, -1)
+    #mask = mask.unsqueeze(0)
     return mask
     
 

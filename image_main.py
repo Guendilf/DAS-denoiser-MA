@@ -117,8 +117,9 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
     bestPsnr = bestPsnr
     bestSim = -1
     n = torch.tensor([]).reshape(0, 3*128*128).to(device) #n like in n2info for estimate sigma
-    loss_ex = 0
-    loss_inv = 0
+    lex = 0
+    lin = 0
+    all_marked = 0
     for batch_idx, (original, label) in enumerate((dataLoader)):#tqdm
         original = original.to(device)
         batch = original.shape[0]
