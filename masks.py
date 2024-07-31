@@ -177,26 +177,22 @@ class Mask:
                     source_patch = augment_patch(source[s])
                 else:
                     source_patch = source[s]
-
-            #TODO: chekce dass hier immer np funktioniert. Es gibt fehler bei n2same
-            if torch.is_tensor(source_patch):
-                mask = torch.zeros_like(source_patch)
-            else:
-                mask = np.zeros_like(source_patch)
+            
+            mask = torch.zeros_like(source_patch)
             for c in range(source.shape[0]):
-                boxsize = np.round(np.sqrt(100 / mask_perc))
+                boxsize = np.round((100 / mask_perc)**0.5)
                 maskcoords = get_stratified_coords2D(rand_float_coords2D(boxsize), box_size=boxsize, shape=patch_size)
                 indexing = (c,) + maskcoords
                 mask[indexing] = 1.0
-            return source_patch, np.random.normal(0, 0.2, source_patch.shape), mask
+            return source_patch, torch.randn(source_patch.shape) * 0.2, mask
 
         patches = [get_patch(source) for source in sources] #list from tensor
         source_patches, nooise_input, mask = zip(*patches)
-        source_patches = [torch.from_numpy(arr.copy()) for arr in source_patches]
+        source_patches = [arr for arr in source_patches]
         source_patches = torch.stack(source_patches)
-        nooise_input = [torch.from_numpy(arr) for arr in nooise_input]
+        nooise_input = [arr for arr in nooise_input]
         nooise_input = torch.stack(nooise_input)
-        mask = [torch.from_numpy(arr) for arr in mask]
+        mask = [arr for arr in mask]
         mask = torch.stack(mask)
 
         return source_patches, nooise_input, mask
@@ -258,9 +254,9 @@ def jinv_recon(noise_image, model, grid_size, mode, infer_single_pass, include_m
     return acc_tensor
 
 def augment_patch(patch):
-        patch = np.rot90(patch, k=np.random.randint(4), axes=(1, 2))
-        patch = np.flip(patch, axis=-2) if np.random.randint(2) else patch
-        return patch
+    patch = torch.rot90(patch, k=torch.randint(0, 4, (1,)).item(), dims=(1, 2))
+    patch = torch.flip(patch, dims=(-2,)) if torch.randint(0, 2, (1,)).item() else patch
+    return patch
 
 def get_stratified_coords2D(coord_gen, box_size, shape):
     box_count_y = int(np.ceil(shape[0] / box_size))

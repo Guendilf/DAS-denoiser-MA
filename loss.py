@@ -125,7 +125,6 @@ def n2n_loss_for_das(denoised, target):
 
 
 
-
 def calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_image2, augmentation=True, 
                    dropout_rate=0.3, num_patches_per_img=None, num_masked_pixels=8, sigma_info=1):
     lr = 0
