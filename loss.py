@@ -161,7 +161,7 @@ def calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_i
         #noise_images = (noise_images - mean_noise[None, :, None, None]) / std_noise[None, :, None, None]
 
         loss, denoised, denoised_mask = n2same(noise_images, device, model, lambda_inv=config.methodes[methode]['lambda_inv'])
-    elif "self2self" in methode:
+    elif "s2self" in methode:
         loss, denoised, mask, lr, ud = self2self(noise_images, model, device, dropout_rate)
 
     elif "n2info" in methode:
