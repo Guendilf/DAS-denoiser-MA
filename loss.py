@@ -1,10 +1,34 @@
-from utils import *#add_norm_noise, add_noise_snr, filp_lr_ud
+#from utils import *#add_norm_noise, add_noise_snr, filp_lr_ud
 from masks import Mask
 from transformations import *
 import torch
-import numpy as nps
+import numpy as np
 import config
 
+"""
+### 
+# Utils
+###
+"""
+def filp_lr_ud(img, lr, ud):
+    """
+    augmentation, flip leftt and right side (dim=2), fllip up and down side (dim=3)
+    Args:
+        img (tensor b,c,w,h): Image TTensor whichh could be flipt
+        lr (int): flip left and right
+        ud (int): flip up and down
+    """
+    if lr > 0:
+        img = torch.flip(img, dims=[2])
+    if ud > 0:
+        img = torch.flip(img, dims=[3])
+    return img
+
+"""
+###
+# Loss functions
+###
+"""
 def n2noise(noise_images, noise_image2, model):
     # Denoise image
     denoised = model(noise_images)
