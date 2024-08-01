@@ -174,7 +174,7 @@ def train(model, device, optimizer, scheduler, dataLoader, mode, writer, rausche
                         e_l = e_l / num_mc
                         #estimated_sigma = (lin)**0.5 + (lin + lex-e_l)**0.5 #inplementation from original github of noise2info
                         m = len(dataLoader) * denoised.shape[0] *3*128*128 #TODO: is m right?
-                        estimated_sigma = lex + (lex**2 * m (lin-e_l))**0.5/m #from paper
+                        estimated_sigma = lex + (lex**2 * m *(lin-e_l))**0.5/m #from paper
                         print('new sigma_loss is ', estimated_sigma)
                         if 0 < estimated_sigma < sigma_n:
                             sigma_n = float(estimated_sigma)

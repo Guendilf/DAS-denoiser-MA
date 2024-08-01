@@ -134,10 +134,10 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
             noise_images2 = n2n_create_2_input(device, methode, original, noise_images)
             if "test" in methode:
                 noise_images2 = add_norm_noise(original, config.methodes['n2noise_2_input_test']['secoundSigma'], a=-1, b=1, norm=False)
-            noise_images2 = torch.clip(noise_images2, 0,1.0)
+            #noise_images2 = torch.clip(noise_images2, 0,1.0)
         else:
             noise_images2 = None
-        noise_images = torch.clip(noise_images, 0,1.0)
+        #noise_images = torch.clip(noise_images, 0,1.0)
 
         if mode=="test" or mode =="validate":
             model.eval()
@@ -168,7 +168,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                     #noise_images = (noise_images - mean[None, :, None, None]) / std[None, :, None, None]
                     noise_images = (noise_images - noise_images.mean(dim=(1, 2), keepdim=True)) / noise_images.std(dim=(1, 2), keepdim=True)
                     denoised = model(noise_images)
-                elif "self2self" in methode:
+                elif "s2self" in methode:
                     denoised = torch.ones_like(noise_images)
                     for i in range(max_Predictions):
                         _, denoised_tmp, _, _, flip = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate)
@@ -225,7 +225,9 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                             lex = lex / (len(dataLoader) * denoised.shape[0])
                             lin = lin / all_marked
                             e_l = e_l / config.methodes['n2info']['predictions']
-                            estimated_sigma = (lin)**0.5 + (lin + lex-e_l)**0.5
+                            #estimated_sigma = (lin)**0.5 + (lin + lex-e_l)**0.5 #inplementation from original github of noise2info
+                            m = len(dataLoader) * denoised.shape[0] *3*128*128 #TODO: is m right?
+                            estimated_sigma = lex + (lex**2 * m *(lin-e_l))**0.5/m #from paper
                             print('new sigma_loss is ', estimated_sigma)
                             if 0 < estimated_sigma < sigma_info:
                                 sigma_info = float(estimated_sigma)
@@ -331,7 +333,7 @@ def main(argv):
     dataset_test_all = datasets.CelebA(root=celeba_dir, split='test', download=False, transform=transform_noise)
 
     #create folder for all methods that will be run
-    store_path = log_files()
+    store_path_root = log_files()
     
     print(f"Using {device} device")
     
@@ -339,11 +341,11 @@ def main(argv):
     for methode, method_params in config.methodes.items():
 
         #create to folders for loging details
-        store_path = Path(os.path.join(store_path, methode))
+        store_path = Path(os.path.join(store_path_root, methode))
         store_path.mkdir(parents=True, exist_ok=True)
-        tmp = Path(os.path.join(store_path, "tensorboard"))
+        tmp = Path(os.path.join(store_path_root, "tensorboard"))
         tmp.mkdir(parents=True, exist_ok=True)
-        tmp = Path(os.path.join(store_path, "models"))
+        tmp = Path(os.path.join(store_path_root, "models"))
         tmp.mkdir(parents=True, exist_ok=True)
 
         print(methode)
@@ -365,7 +367,7 @@ def main(argv):
         else:
             if "n2same" in methode or "n2info" in methode:
                 model = U_Net(first_out_chanel=96, batchNorm=method_params['batchNorm']).to(device)
-            elif "self2self" in methode:
+            elif "s2self" in methode:
                 model = P_U_Net(in_chanel=3, batchNorm=method_params['batchNorm'], dropout=method_params['dropout']).to(device)
             else:
                 model = U_Net(batchNorm=method_params['batchNorm']).to(device)
@@ -501,7 +503,7 @@ def main(argv):
                          'SIM Test']
 
     #show_logs(loss, psnr, value_loss, value_psnr, similarity)
-    end_results.to_csv(os.path.join(store_path, "result_tabel.csv"))
+    end_results.to_csv(os.path.join(store_path_root, "result_tabel.csv"))
     print(end_results)
     print(sigma_info)
     #show_pictures_from_dataset(dataset, model)
