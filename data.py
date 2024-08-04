@@ -288,6 +288,9 @@ def bandpass(data, lowcut, highcut, fs, gutter):
 
 # Erstellen einer Instanz des Datasets
 eq_strain_rates = torch.randn(10, 5000)  # Beispielhafte Daten, bitte durch Ihre eigenen Daten ersetzen
+
+#eq_strain_rates = np.load("data/DAS/SIS-rotated_train_50Hz.npy")
+
 dataset = SyntheticNoiseDAS(eq_strain_rates)
 
 # Erstellen des DataLoaders

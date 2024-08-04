@@ -212,7 +212,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                         lex += loss_rec
                         lin += loss_inv
                         n_partition = (denoised-noise_images).view(denoised.shape[0], -1) # (b, c*w*h)
-                        n_partition = torch.sort(n_partition, dim=1).values
+                        n_partition = torch.sort(n_partition, dim=1).values #descending=False
                         n = torch.cat((n, n_partition), dim=0)
                         if batch_idx == len(dataLoader)-1:
                             e_l = 0
@@ -220,7 +220,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                                 #to big for torch.multinomial if all pictures from validation should be used
                                 #samples = torch.tensor(torch.multinomial(n.view(-1), n.shape[1], replacement=True))#.view(1, n.shape[1])
                                 #samples = torch.sort(samples).values
-                                samples = np.sort(np.random.choice((n.cpu()).reshape(-1),[1, n.shape[1]]))
+                                samples = np.sort(np.random.choice((n.cpu()).reshape(-1),[1, n.shape[1]])) #(1,49152)
                                 e_l += torch.mean((n-torch.from_numpy(samples).to(device))**2)
                             lex = lex / (len(dataLoader) * denoised.shape[0])
                             lin = lin / all_marked
@@ -233,6 +233,9 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                                 sigma_info = float(estimated_sigma)
                                 print('sigma_loss updated to ', estimated_sigma)
                             writer.add_scalar('estimated sigma', estimated_sigma, epoch)
+                            writer.add_scalar('lex', lex, epoch)
+                            writer.add_scalar('lin', lin, epoch)
+                            writer.add_scalar('e_l', e_l, epoch)
                         
         else:
             model.train()
@@ -323,7 +326,7 @@ def main(argv):
         #transforms.Resize((512,512)), #for self2self
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.float()),
-        #transforms.Lambda(lambda x:  x * 2 -1),
+        transforms.Lambda(lambda x:  x * 2 -1),
         ])
     print("lade Datensätze ...")
     dataset_all = datasets.CelebA(root=celeba_dir, split='train', download=False, transform=transform_noise)
@@ -343,9 +346,9 @@ def main(argv):
         #create to folders for loging details
         store_path = Path(os.path.join(store_path_root, methode))
         store_path.mkdir(parents=True, exist_ok=True)
-        tmp = Path(os.path.join(store_path_root, "tensorboard"))
+        tmp = Path(os.path.join(store_path, "tensorboard"))
         tmp.mkdir(parents=True, exist_ok=True)
-        tmp = Path(os.path.join(store_path_root, "models"))
+        tmp = Path(os.path.join(store_path, "models"))
         tmp.mkdir(parents=True, exist_ok=True)
 
         print(methode)

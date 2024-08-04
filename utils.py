@@ -177,19 +177,6 @@ def add_noise_snr(x, snr_db):
     noise = x + noise * alpha
     return noise, alpha.item()
 
-def filp_lr_ud(img, lr, ud):
-    """
-    augmentation, flip leftt and right side (dim=2), fllip up and down side (dim=3)
-    Args:
-        img (tensor b,c,w,h): Image TTensor whichh could be flipt
-        lr (int): flip left and right
-        ud (int): flip up and down
-    """
-    if lr > 0:
-        img = torch.flip(img, dims=[2])
-    if ud > 0:
-        img = torch.flip(img, dims=[3])
-    return img
 
 def estimate_opt_sigma(noise_images, denoised, kmc, l_in, l_ex, n):
     """

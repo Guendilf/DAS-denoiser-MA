@@ -72,10 +72,10 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
 
 def n2same(noise_images, device, model, lambda_inv=2):
     #old
-    mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
+    #mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
     #new
-    #_,_,mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-1],noise_images.shape[-2]), 0.5, augment=False)
-    #marked_points = torch.sum(mask)
+    _,_,mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-1],noise_images.shape[-2]), 0.5, augment=False)
+    marked_points = torch.sum(mask)
 
     mask = mask.to(device)
     masked_input = (1-mask) * noise_images + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask)
@@ -85,7 +85,7 @@ def n2same(noise_images, device, model, lambda_inv=2):
     mse = torch.nn.MSELoss()
     loss_rec = torch.mean((denoised-noise_images)**2) # mse(denoised, noise_images)
     loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
-    loss = loss_rec + lambda_inv *1* (loss_inv/marked_points).sqrt()
+    loss = loss_rec + lambda_inv * 1 * (loss_inv/marked_points).sqrt()
     return loss, denoised, denoised_mask #J = count of maked_points
 
 def self2self(noise_images, model, device, dropout_rate):
@@ -138,7 +138,7 @@ def n2info(noise_images, model, device, sigma_n):
     mse = torch.nn.MSELoss()
     loss_rec = torch.mean((denoised-noise_images)**2) # mse(denoised, noise_images)
     loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
-    loss = loss_rec + 2 *sigma_n* (loss_inv/marked_points).sqrt()
+    loss = loss_rec + config.methodes['n2info']['lambda_inv'] * sigma_n * (loss_inv/marked_points).sqrt()
     return loss, denoised, loss_rec, loss_inv, marked_points
 
 def n2n_loss_for_das(denoised, target):

@@ -26,19 +26,6 @@ methodes = dict(
         lambda_inv=-1,
         dropout_rate=0,
     ),
-    n2noise_2_input_test = dict(#original with diffrent noise level
-        lr = 0.003,
-        batchNorm = False,
-        dropout = 0,
-        net = 'U_Net',
-        sheduler = False,
-
-        secoundSigma = sigmadb+0.4 if useSigma else sigmadb+2,
-
-        augmentation = False,
-        lambda_inv=-1,
-        dropout_rate=0,
-    ),
     #in experiment there is only ONE sample
     n2noise_1_input = dict(
         lr = 0.003,
@@ -111,7 +98,7 @@ methodes = dict(
         changeLR_rate = -0.5,
 
         augmentation = False,
-        lambda_inv=-1,
+        lambda_inv=2,
         dropout_rate=0,
     ),
     n2void = dict(
