@@ -36,6 +36,12 @@ def generate_patches_from_list(data, clean_image, num_patches_per_img=None, shap
         patches = []
         clean_patches = []
         i=0
+        #check if shape is valide
+        if shape[0] > data.shape[-2]:
+            shape[0] = data.shape[-2]
+        if shape[1] > data.shape[-1]:
+            shape[1] = data.shape[-1]
+            
         for img in data:
             patch, clean_patch = generate_patches(img.unsqueeze(0), clean_image[i].unsqueeze(0), num_patches=num_patches_per_img, shape=shape, augment=augment)
             i = i+1

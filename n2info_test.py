@@ -118,15 +118,16 @@ def paper_estimate_opt_sigma_new(noise_images, dataLoader, model, device, sigma_
     e_l = 0
     all_marked_points = 0
     batchsize = noise_images.shape[0]
-    dimension = noise_images.shpae[1]*noise_images.shpae[2]*noise_images.shpae[3]
+    dimension = noise_images.shape[1]*noise_images.shape[2]*noise_images.shape[3]
     all_pixels = len(dataLoader)*batchsize*dimension
-    n = torch.zeros(len(dataLoader)*batchsize, dimension)
+    n = torch.zeros(len(dataLoader)*batchsize, dimension).to(device)
     for batch_idx, (original, label) in enumerate((dataLoader)):
         if config.useSigma:
             noise_images = add_norm_noise(original, config.sigma, a=-1, b=1, norm=False)
             true_noise_sigma = config.sigma
         else:
             noise_images, true_noise_sigma = add_noise_snr(original, snr_db=config.sigmadb)
+        noise_images = noise_images.to(device)
         _, denoised, loss_inv_tmp, loss_ex_tmp, marked_points = noise2info(noise_images, model, device, sigma_info)
         loss_in += loss_inv_tmp
         loss_ex += loss_ex_tmp
@@ -135,7 +136,7 @@ def paper_estimate_opt_sigma_new(noise_images, dataLoader, model, device, sigma_
         n[batch_idx*batchsize : batch_idx*batchsize + batchsize, :] = denoised.view(batchsize, -1)
     loss_ex = loss_ex / all_marked_points
     loss_in = loss_in / len(dataLoader)
-    for i in range(config.methods['n2info']['predictions']):
+    for i in range(config.methodes['n2info']['predictions']):
         # sample uniform between 0 and max(pixel count in all images) exacly "dimension" pixels
         indices = torch.randperm(all_pixels)[:dimension] #dimension = m in paper
         # transform n into vector view and extract the sampled values
@@ -144,7 +145,7 @@ def paper_estimate_opt_sigma_new(noise_images, dataLoader, model, device, sigma_
 
         
         e_l += torch.mean((n - sorted_values) ** 2)
-    e_l = e_l / config.methods['n2info']['predictions']
+    e_l = e_l / config.methodes['n2info']['predictions']
     #estimated_sigma= loss_ex**0.5 + (loss_ex + loss_in - e_l)**0.5 # version from github https://github.com/dominatorX/Noise2Info-code/blob/master/network_keras.py#L106
     estimated_sigma = loss_ex + (loss_ex**2 + dimension*(loss_in-e_l)).sqrt()/dimension #version from paper
     return estimated_sigma
@@ -166,15 +167,16 @@ def git_paper_estimate_opt_sigma_new(noise_images, dataLoader, model, device, si
     e_l = 0
     all_marked_points = 0
     batchsize = noise_images.shape[0]
-    dimension = noise_images.shpae[1]*noise_images.shpae[2]*noise_images.shpae[3]
+    dimension = noise_images.shape[1]*noise_images.shape[2]*noise_images.shape[3]
     all_pixels = len(dataLoader)*batchsize*dimension
-    n = torch.zeros(len(dataLoader)*batchsize, dimension)
+    n = torch.zeros(len(dataLoader)*batchsize, dimension).to(device)
     for batch_idx, (original, label) in enumerate((dataLoader)):
         if config.useSigma:
             noise_images = add_norm_noise(original, config.sigma, a=-1, b=1, norm=False)
             true_noise_sigma = config.sigma
         else:
             noise_images, true_noise_sigma = add_noise_snr(original, snr_db=config.sigmadb)
+        noise_images = noise_images.to(device)
         _, denoised, loss_inv_tmp, loss_ex_tmp, marked_points = noise2info(noise_images, model, device, sigma_info)
         loss_in += loss_inv_tmp
         loss_ex += loss_ex_tmp
@@ -183,7 +185,7 @@ def git_paper_estimate_opt_sigma_new(noise_images, dataLoader, model, device, si
         n[batch_idx*batchsize : batch_idx*batchsize + batchsize, :] = denoised.view(batchsize, -1)
     loss_ex = loss_ex / all_marked_points
     loss_in = loss_in / len(dataLoader)
-    for i in range(config.methods['n2info']['predictions']):
+    for i in range(config.methodes['n2info']['predictions']):
         # sample uniform between 0 and max(pixel count in all images) exacly "dimension" pixels
         indices = torch.randperm(all_pixels)[:dimension] #dimension = m in paper
         # transform n into vector view and extract the sampled values
@@ -192,7 +194,7 @@ def git_paper_estimate_opt_sigma_new(noise_images, dataLoader, model, device, si
 
         
         e_l += torch.mean((n - sorted_values) ** 2)
-    e_l = e_l / config.methods['n2info']['predictions']
+    e_l = e_l / config.methodes['n2info']['predictions']
     estimated_sigma= loss_ex**0.5 + (loss_ex + loss_in - e_l)**0.5 # version from github https://github.com/dominatorX/Noise2Info-code/blob/master/network_keras.py#L106
     #estimated_sigma = loss_ex + (loss_ex**2 + dimension*(loss_in-e_l)).sqrt()/dimension #version from paper
     return estimated_sigma
