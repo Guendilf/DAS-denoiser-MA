@@ -181,7 +181,7 @@ class N2N_Orig_Unet(nn.Module):
     
 
 class TestNet(nn.Module):
-    def __init__(self, input_chanels, output_chanels):
+    def __init__(self, input_chanels, output_chanels, scaling_kernel_size=2):
         super(TestNet, self).__init__()
 
         self.input_chanels = input_chanels
