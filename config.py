@@ -11,6 +11,7 @@ std_lr = 0.003
 #datasets
 celeba_dir = 'dataset/celeba_dataset'
 mnist_dir  = 'dataset/mnist_dataset'
+strain_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
 
 #method std. config
 methodes = dict(
@@ -112,15 +113,15 @@ methodes = dict(
         lambda_inv=-1,
         dropout_rate=0,
     ),
-    s2self = dict(
-        lr = 0.003,
-        batchNorm = False,
-        dropout = 0.3,
-        net = 'P_U_Net',
-        sheduler = False,
-        augmentation = True,
+    #s2self = dict(
+        #lr = 0.003,
+        #batchNorm = False,
+        #dropout = 0.3,
+        #net = 'P_U_Net',
+        #sheduler = False,
+        #augmentation = True,
 
-        lambda_inv=-1,
-        dropout_rate=0, #for masking (optional)
-    ),
+        #lambda_inv=-1,
+        #dropout_rate=0, #for masking (optional)
+    #),
 )

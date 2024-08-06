@@ -1,4 +1,5 @@
 #from utils import *#add_norm_noise, add_noise_snr, filp_lr_ud
+import math
 from masks import Mask
 from transformations import *
 import torch
@@ -139,6 +140,8 @@ def n2info(noise_images, model, device, sigma_n):
     loss_rec = torch.mean((denoised-noise_images)**2) # mse(denoised, noise_images)
     loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
     loss = loss_rec + config.methodes['n2info']['lambda_inv'] * sigma_n * (loss_inv/marked_points).sqrt()
+    if math.isnan(loss):
+        pass
     return loss, denoised, loss_rec, loss_inv, marked_points
 
 def n2n_loss_for_das(denoised, target):
