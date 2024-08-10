@@ -52,8 +52,11 @@ def n2self(noise_image, batch_idx, model):
     return torch.nn.MSELoss()(denoised*mask, noise_image*mask), denoised, masked_noise_image
 
 
-def n2void(original_images, noise_images, model, device, num_patches_per_img, windowsize, num_masked_pixels, augmentation):
-    patches, clean_patches = generate_patches_from_list(noise_images, original_images, num_patches_per_img=num_patches_per_img, augment=augmentation)
+def n2void(original_images, noise_images, model, device, num_patches_per_img, windowsize, num_masked_pixels, augmentation, shape):
+    if shape:
+        patches, clean_patches = generate_patches_from_list(noise_images, original_images, num_patches_per_img=num_patches_per_img, shape=shape, augment=augmentation)
+    else:
+        patches, clean_patches = generate_patches_from_list(noise_images, original_images, num_patches_per_img=num_patches_per_img, augment=augmentation)
 
     total_pixels = patches.shape[-1] * patches.shape[-2]
     masked_pixels_percentage = (num_masked_pixels / total_pixels) * 100
@@ -177,8 +180,10 @@ def calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_i
         #mean_clean = original.mean(dim=[0,2,3])
         #std_clean = original.std(dim=[0,2,3])
         #original = (original - mean_clean[None, :, None, None]) / std_clean[None, :, None, None]
-
-        loss, denoised, patches, original_patches = n2void(original, noise_images, model, device, num_patches_per_img=num_patches_per_img, windowsize=5, num_masked_pixels=num_masked_pixels, augmentation=augmentation)
+        if noise_images.shape[1]==3:
+            loss, denoised, patches, original_patches = n2void(original, noise_images, model, device, num_patches_per_img=num_patches_per_img, windowsize=5, num_masked_pixels=num_masked_pixels, augmentation=augmentation)
+        else: # DAS
+            loss, denoised, patches, original_patches = n2void(original, noise_images, model, device, num_patches_per_img=num_patches_per_img, windowsize=5, num_masked_pixels=num_masked_pixels, augmentation=augmentation, shape=(11,noise_images.shape[-1]),)
         noise_images = patches
         original = original_patches
     elif "n2same"  in methode:

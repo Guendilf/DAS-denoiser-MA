@@ -67,6 +67,25 @@ def evaluateSigma(noise_image, vector):
     return quality_metric[best_idx], sigmas[best_idx]
 
 
+def plot_and_save_to_tensorboard(original, writer, step=0):
+    plt.figure(figsize=(10, 5))
+    for i in range(original.shape[1]):
+        sr = original[0][i] / original[0][i].std()
+        plt.plot(sr + 3 * i, c="k", lw=0.5, alpha=1)
+    plt.tight_layout()
+
+    # Plot in ein Bild konvertieren
+    plt.savefig("temp_plot.png", bbox_inches='tight')
+    plt.close()
+
+    # Bild lesen
+    image = plt.imread("temp_plot.png")
+
+    # Bild zu TensorBoard hinzufügen
+    writer.add_image("DAS Visualization", np.expand_dims(image, axis=0), step=step)
+
+
+
 def saveModel_pictureComparison(model, len_dataloader, methode, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch):
     if round(psnr_batch.item(),1) > bestPsnr + 0.5 or batch_idx == len_dataloader-1:
         if round(psnr_batch.item(),1) > bestPsnr and mode != "test":
@@ -133,6 +152,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
         if mode=="test" or mode =="validate":
             model.eval()
             with torch.no_grad():
+                torch.cuda.empty_cache()
                 loss, _, _, _, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate)
                 (_, _, _, est_sigma_opt) = optional_tuples
                 if "n2noise" in methode:
@@ -244,7 +264,8 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
         noise_images = (noise_images-noise_images.min())  / (noise_images.max() - noise_images.min())
         original = (original-original.min())  / (original.max() - original.min())
         psnr_batch = Metric.calculate_psnr(original, denoised)
-        similarity_batch, diff_picture = Metric.calculate_similarity(original, denoised)
+        #similarity_batch, diff_picture = Metric.calculate_similarity(original, denoised)
+        similarity_batch = 0
         loss_log.append(loss.item())
         psnr_log.append(psnr_batch.item())
         original_psnr_log.append(original_psnr_batch.item())
@@ -314,8 +335,8 @@ def main(argv):
     eq_strain_rates = np.load(strain_dir)
     eq_strain_rates = torch.tensor(eq_strain_rates)
     dataset = SyntheticNoiseDAS(eq_strain_rates, nx=11, size=1000, mode="train")
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates, nx=512, size=100*512, mode="val")
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates, nx=512, size=100*512, mode="test")
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates, nx=128, size=100, mode="val")
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates, nx=128, size=100, mode="test")
 
     #create folder for all methods that will be run
     store_path_root = log_files()
