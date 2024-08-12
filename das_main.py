@@ -128,7 +128,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
     true_sigma_score = []
     bestPsnr = bestPsnr
     bestSim = -1
-    n = torch.tensor([]).reshape(0, 1*512*2048).to(device) #n like in n2info for estimate sigma
+    n = torch.tensor([]).reshape(0, 1*128*2048).to(device) #n like in n2info for estimate sigma
     lex = 0
     lin = 0
     all_marked = 0
