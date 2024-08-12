@@ -132,16 +132,20 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
     lex = 0
     lin = 0
     all_marked = 0
-    for batch_idx, original in enumerate((dataLoader)):#tqdm
-        original = original.to(device)
+    #for batch_idx, original in enumerate((dataLoader)):#tqdm
+    for batch_idx, (noise_images, original, noise, std, amp) in enumerate(dataLoader):
+        original = original.to(device).type(torch.float32)
         batch = original.shape[0]
+        """
         if config.useSigma:
             noise_images = add_norm_noise(original, sigma, a=-1, b=1, norm=False)
             true_noise_sigma = sigma
         else:
             noise_images, true_noise_sigma = add_noise_snr(original, snr_db=sigma)
+        """
+        true_noise_sigma = noise.std()
         writer.add_scalar('True Noise sigma', true_noise_sigma, epoch * len(dataLoader) + batch_idx)
-        noise_images = noise_images.to(device)
+        noise_images = noise_images.to(device).type(torch.float32)
         if "n2noise" in methode:
             noise_images2 = n2n_create_2_input(device, methode, original, noise_images)
             if "test" in methode:
@@ -189,31 +193,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                     denoised = denoised / max_Predictions
                     denoised = (denoised+1)/2
                 elif "n2info" in methode:
-                    #TODO: normalisierung ist in der implementation da, aber ich habe es noch nicht im training gefunden
-                    """
-                    !Old version
-                    if batch_idx == 0:
-                        est_sigma_opt = estimate_opt_sigma_new(noise_images, dataLoader, model, device, sigma_info).item()
-
-                    _, denoised, loss_inv_tmp, loss_ex_tmp, _ = noise2info(noise_images, model, device, sigma_info)
-                    loss_ex += loss_ex_tmp#+=
-                    loss_inv += loss_inv_tmp#+=
-
-                    n_partition = (denoised-noise_images).view(denoised.shape[0], -1) # (b, c*w*h)
-                    n_partition = torch.sort(n_partition, dim=1).values
-                    n = torch.cat((n, n_partition), dim=0)
-                    #n=n_partition
-
-
-                    if batch_idx == len(dataLoader) -1:
-                        loss_inv = loss_inv / len(dataLoader)
-                        est_sigma_opt = estimate_opt_sigma(noise_images, denoised, kmc=10, l_in=loss_inv, l_ex=loss_ex, n=n).item()
-
-                    if est_sigma_opt < sigma_info:
-                        sigma_info = est_sigma_opt
-                    best_sigmas.append(est_sigma_opt)
-                    """
-                    
+                    #TODO: normalisierung ist in der implementation da, aber ich habe es noch nicht im training gefunden                   
                     if mode=="test":
                         denoised = model(noise_images)
                     else:
@@ -259,32 +239,19 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                 scheduler.step()
 
         #log Data
-        original_psnr_batch = Metric.calculate_psnr(original, denoised)
-        denoised = (denoised-denoised.min())  / (denoised.max() - denoised.min())
-        noise_images = (noise_images-noise_images.min())  / (noise_images.max() - noise_images.min())
-        original = (original-original.min())  / (original.max() - original.min())
-        psnr_batch = Metric.calculate_psnr(original, denoised)
-        #similarity_batch, diff_picture = Metric.calculate_similarity(original, denoised)
+        original_psnr_batch = Metric.calculate_psnr(original, denoised, max_intensity=original.max()-original.min())
+        
+        #psnr_batch = Metric.calculate_psnr(original, denoised)
+
         similarity_batch = 0
         loss_log.append(loss.item())
-        psnr_log.append(psnr_batch.item())
+        #psnr_log.append(psnr_batch.item())
         original_psnr_log.append(original_psnr_batch.item())
         sim_log.append(similarity_batch)
 
         #save model + picture
-        bestPsnr = saveModel_pictureComparison(model, len(dataLoader), methode, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch)
-    #log sigma value for noise2info
-    """
-    if (mode=="test" or mode =="validate") and ("n2info" in methode):
-        if mode=="validate":
-            for i in range(len(best_sigmas)):
-                writer.add_scalar('Validate estimated sigma', best_sigmas[i], epoch * len(dataLoader) + i)
-            writer.add_scalar('Validation mean estimated', np.mean(best_sigmas), epoch )
-        if mode=="test":
-            for i in range(len(best_sigmas)):
-                writer.add_scalar('Test estimated sigma', best_sigmas[i], epoch * len(dataLoader) + i)
-            writer.add_scalar('Test estimated sigma', np.mean(best_sigmas), epoch)
-    """
+        bestPsnr = saveModel_pictureComparison(model, len(dataLoader), methode, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, original_psnr_batch)
+
     #log sigma value for n2score
     if (mode=="test" or mode =="validate") and ("n2score" in methode):
         ture_sigma_line = np.mean(true_sigma_score)
@@ -400,10 +367,10 @@ def main(argv):
             
             for i, loss_item in enumerate(loss):
                 writer.add_scalar('Train Loss', loss_item, epoch * len(dataLoader) + i)
-                writer.add_scalar('Train PSNR_iteration [0,1]', psnr[i], epoch * len(dataLoader) + i)
+                #writer.add_scalar('Train PSNR_iteration [0,1]', psnr[i], epoch * len(dataLoader) + i)
                 writer.add_scalar('Train Original PSNR (not normed)', original_psnr_log[i], epoch * len(dataLoader) + i)
                 writer.add_scalar('Train Similarity_iteration', similarity[i], epoch * len(dataLoader) + i)
-            writer.add_scalar('Train PSNR [0,1] avg', Metric.avg_list(psnr), epoch)
+            writer.add_scalar('Train PSNR avg', Metric.avg_list(original_psnr_log), epoch)
             
             if epoch % 5 == 0  or epoch==max_Epochs-1:
                 model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
@@ -413,12 +380,15 @@ def main(argv):
                     f = open(model_save_path, "x")
                     f.close()
 
-            if round(max(psnr),3) > bestPsnr:
-                bestPsnr = round(max(psnr),3)
+            #if round(max(psnr),3) > bestPsnr:
+                #bestPsnr = round(max(psnr),3)
+            if round(max(original_psnr_log),3) > bestPsnr:
+                bestPsnr = round(max(original_psnr_log),3)
             if round(max(similarity),3) > bestSim:
                 bestSim = round(max(similarity),3)
             
-            print("Epochs highest PSNR: ", max(psnr))
+            #print("Epochs highest PSNR: ", max(psnr))
+            print("Epochs highest PSNR: ", max(original_psnr_log))
             print("Epochs highest Sim: ", max(similarity))
             
             #if torch.cuda.device_count() == 1:
@@ -434,19 +404,24 @@ def main(argv):
 
             for i, loss_item in enumerate(loss_val):
                 writer.add_scalar('Validation Loss', loss_item, epoch * len(dataLoader) + i)
-                writer.add_scalar('Validation PSNR_iteration [0,1]', psnr_val[i], epoch * len(dataLoader) + i)
+                #writer.add_scalar('Validation PSNR_iteration [0,1]', psnr_val[i], epoch * len(dataLoader) + i)
                 writer.add_scalar('Validation Original PSNR (not normed)', original_psnr_log_val[i], epoch * len(dataLoader) + i)
                 writer.add_scalar('Validation Similarity_iteration', similarity_val[i], epoch * len(dataLoader) + i)
-            writer.add_scalar('Validation PSNR [0,1] avg', Metric.avg_list(psnr_val), epoch)
+            writer.add_scalar('Validation PSNR avg', Metric.avg_list(original_psnr_log_val), epoch)
 
-            if max(psnr_val) > bestPsnr_val:
-                bestPsnr_val = max(psnr_val)
+            #if max(psnr_val) > bestPsnr_val:
+                #bestPsnr_val = max(psnr_val)
+            if round(max(original_psnr_log_val),3) > bestPsnr_val:
+                bestPsnr_val = round(max(original_psnr_log_val),3)
             print("Loss: ", loss_val[-1])
-            print("Epochs highest PSNR: ", max(psnr_val))
+            #print("Epochs highest PSNR: ", max(psnr_val))
+            print("Epochs highest PSNR: ", max(original_psnr_log_val))
             print("Epochs highest Sim: ", max(similarity_val))
-            avg_train_psnr.append(Metric.avg_list(psnr))
+            #avg_train_psnr.append(Metric.avg_list(psnr))
+            avg_train_psnr.append(Metric.avg_list(original_psnr_log))
             avg_train_sim.append(Metric.avg_list(similarity))
-            avg_val_psnr.append(Metric.avg_list(psnr_val))
+            #avg_val_psnr.append(Metric.avg_list(psnr_val))
+            avg_val_psnr.append(Metric.avg_list(original_psnr_log_val))
             avg_val_sim.append(Metric.avg_list(similarity_val))
             writer.add_scalar("loss/train", Metric.avg_list(loss), epoch)
             writer.add_scalar("loss/validation", Metric.avg_list(loss_val), epoch)
@@ -462,8 +437,8 @@ def main(argv):
                 print(f"NAN, breche ab, break: {methode}")
                 break
 
-            if round(max(psnr_val),3) > bestPsnr_val:
-                bestPsnr_val = round(max(psnr_val),3)
+            #if round(max(psnr_val),3) > bestPsnr_val:
+                #bestPsnr_val = round(max(psnr_val),3)
             if round(max(similarity_val),3) > bestSim_val:
                 bestSim_val = round(max(similarity_val),3)
         
@@ -472,8 +447,8 @@ def main(argv):
         loss_test, psnr_test, similarity_test, _, _, original_psnr_log_test = train(model, optimizer, scheduler, device, dataLoader_test, methode, sigma=sigma, mode="test", 
                                                                     store=store_path, epoch=-1, bestPsnr=-1, writer = writer, 
                                                                     save_model=False, sigma_info=sigma_info, dropout_rate=0.3, lambda_inv=2, augmentation=True)
-        writer.add_scalar("PSNR Test", Metric.avg_list(psnr_test), 0)
-        writer.add_scalar("PSNR original (bot normed) Test", Metric.avg_list(original_psnr_log_val), 0)
+        #writer.add_scalar("PSNR Test", Metric.avg_list(psnr_test), 0)
+        writer.add_scalar("PSNR original (bot normed) Test", Metric.avg_list(original_psnr_log_test), 0)
         writer.add_scalar("Loss Test", Metric.avg_list(loss_test), 0)
         writer.add_scalar("Sim Test", Metric.avg_list(similarity_test), 0)
 
@@ -486,7 +461,7 @@ def main(argv):
                                 avg_val_psnr[-1], 
                                 round(bestSim_val,3), 
                                 round(avg_val_sim[-1],3),
-                                round(max(psnr_test),3), 
+                                round(max(original_psnr_log_test),3), 
                                 round(max(similarity_test),3)]
 
     end_results.index = ['Loss', 

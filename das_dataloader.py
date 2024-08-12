@@ -206,7 +206,7 @@ class SyntheticNoiseDAS(Dataset):
         eq_das = generate_synthetic_das(eq_strain_rate, self.gauge, self.fs, slowness, nx=self.nx)
         j = np.random.randint(0, eq_strain_rate.shape[-1]-self.nt+1)
         eq_das = eq_das[:,j:j+self.nt]
-        """
+        #"""
         snr = 10 ** np.random.uniform(*self.log_SNR)  # log10-uniform distribution
         amp = 2 * np.sqrt(snr) / torch.abs(eq_das + 1e-10).max()
         eq_das *= amp
@@ -221,8 +221,8 @@ class SyntheticNoiseDAS(Dataset):
         sample /= scale
         #           nois_image,         clean               noise         std der Daten (b,c,nx,1)  Ampllitude vom DAS (b)
         return sample.unsqueeze(0), eq_das.unsqueeze(0), noise.unsqueeze(0), scale.unsqueeze(0), amp
-        """
-        return eq_das.unsqueeze(0)
+        #"""
+        #return eq_das.unsqueeze(0)
 
 
 class RealDAS(Dataset):

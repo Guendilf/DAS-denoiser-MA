@@ -477,7 +477,7 @@ def main(argv):
                                                                     store=store_path, epoch=-1, bestPsnr=-1, writer = writer, 
                                                                     save_model=False, sigma_info=sigma_info, dropout_rate=0.3, lambda_inv=2, augmentation=True)
         writer.add_scalar("PSNR Test", Metric.avg_list(psnr_test), 0)
-        writer.add_scalar("PSNR original (bot normed) Test", Metric.avg_list(original_psnr_log_val), 0)
+        writer.add_scalar("PSNR original (bot normed) Test", Metric.avg_list(original_psnr_log_test), 0)
         writer.add_scalar("Loss Test", Metric.avg_list(loss_test), 0)
         writer.add_scalar("Sim Test", Metric.avg_list(similarity_test), 0)
 

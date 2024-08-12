@@ -5,8 +5,7 @@ import torch
 import torch.nn.functional as F
 
 class Metric:
-    def calculate_psnr(x,y):
-        max_intensity = 1.0  # weil Vild [0, 1]
+    def calculate_psnr(x,y,max_intensity=1.0):
         if torch.is_tensor(x):
             if torch.is_tensor(y):
                 mse = torch.mean((x-y)**2)
