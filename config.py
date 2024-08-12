@@ -57,6 +57,23 @@ methodes = dict(
         lambda_inv=-1,
         dropout_rate=0,
     ),
+
+    DASn2self = dict(
+        lr = 0.001,
+        batchNorm = False,
+        dropout = 0,
+        net = 'U_Net',
+        sheduler = False,
+        erweiterung = 'j-invariant',
+
+        radius = 3,
+        grid_size = 4,
+
+        augmentation = False,
+        lambda_inv=-1,
+        dropout_rate=0,
+    ),
+
     n2score = dict(
         lr = 0.003, #TODO: check
         batchNorm = True,

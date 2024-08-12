@@ -51,6 +51,15 @@ def n2self(noise_image, batch_idx, model):
     #j_invariant_denoised = n2self_infer_full_image(noise_image, model)  #TODO: weiß noch nicht was das ist und wofür es benutzt wird
     return torch.nn.MSELoss()(denoised*mask, noise_image*mask), denoised, masked_noise_image
 
+def n2self_DAS(noise_image, batch_idx, model):
+    mask = torch.ones_like(noise_image).to(noise_image.device)
+    for i in range(mask.shape[0]):
+        mask[i, :, np.random.randint(0, mask.shape[2]), :] = 0
+    masked_noise_image = mask * noise_image
+    denoised = model(masked_noise_image)
+    #j_invariant_denoised = n2self_infer_full_image(noise_image, model)  #TODO: weiß noch nicht was das ist und wofür es benutzt wird
+    return torch.nn.MSELoss()(denoised*mask, noise_image*mask), denoised, masked_noise_image
+
 
 def n2void(original_images, noise_images, model, device, num_patches_per_img, windowsize, num_masked_pixels, augmentation, shape):
     if shape:
@@ -170,7 +179,10 @@ def calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_i
         denoised = noise_images + true_noise_sigma**2*denoised
 
     elif "n2self" in methode:
-        loss, denoised, masked_noise_image = n2self(noise_images, batch_idx, model)
+        if "DAS" in methode:
+            loss, denoised, masked_noise_image = n2self_DAS(noise_images, batch_idx, model)
+        else:    
+            loss, denoised, masked_noise_image = n2self(noise_images, batch_idx, model)
 
     elif "n2void" in methode:
         #normalise Data as in github

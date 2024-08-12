@@ -18,7 +18,7 @@ from models.P_Unet import P_U_Net
 from utils import *
 from transformations import *
 from loss import calculate_loss
-import config as config
+import config_test as config
 from das_dataloader import SyntheticNoiseDAS
 
 from absl import app
@@ -29,7 +29,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 max_Iteration = 2
-max_Epochs = 20
+max_Epochs = 50
 max_Predictions = 100 #für self2self um reconstruktion zu machen
 #torch.manual_seed(42)
 
@@ -102,7 +102,7 @@ def saveModel_pictureComparison(model, len_dataloader, methode, mode, store, epo
             denoised = denoised[::skip] # zeige nur jedes 6. Bild an (im path wird aus einem bild 6 wenn die Batchhgröße = 64)
             original = original[::skip]
             noise_images = noise_images[::skip]
-        comparison = torch.cat((original[:4], denoised[:4], noise_images[:4]), dim=0)
+        comparison = torch.cat((original[:4, :, :, :1024], denoised[:4, :, :, :1024], noise_images[:4, :, :, :1024]), dim=0)
         grid = make_grid(comparison, nrow=4, normalize=False).cpu()
         if mode == "train":
             writer.add_image('Denoised Images Training', grid, global_step=epoch * len_dataloader + batch_idx)
@@ -322,9 +322,9 @@ def main(argv):
         tmp.mkdir(parents=True, exist_ok=True)
 
         print(methode)
-        dataLoader = DataLoader(dataset, batch_size=32, shuffle=True)
-        dataLoader_validate = DataLoader(dataset_validate, batch_size=32, shuffle=False)
-        dataLoader_test = DataLoader(dataset_test, batch_size=32, shuffle=False)
+        dataLoader = DataLoader(dataset, batch_size=18, shuffle=True)
+        dataLoader_validate = DataLoader(dataset_validate, batch_size=18, shuffle=False)
+        dataLoader_test = DataLoader(dataset_test, batch_size=18, shuffle=False)
         if torch.cuda.device_count() == 1:
             #model = N2N_Orig_Unet(1,1).to(device) #default
             #model = P_U_Net(in_chanel=3, batchNorm=True, dropout=0.3).to(device)
