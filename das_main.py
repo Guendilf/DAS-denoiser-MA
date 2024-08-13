@@ -102,7 +102,8 @@ def saveModel_pictureComparison(model, len_dataloader, methode, mode, store, epo
             denoised = denoised[::skip] # zeige nur jedes 6. Bild an (im path wird aus einem bild 6 wenn die Batchhgröße = 64)
             original = original[::skip]
             noise_images = noise_images[::skip]
-        comparison = torch.cat((original[:4, :, :, :1024], denoised[:4, :, :, :1024], noise_images[:4, :, :, :1024]), dim=0)
+        comparison = torch.cat((original[:4], denoised[:4], noise_images[:4]), dim=0)#[:4, :, :, :1024]
+        comparison = comparison[:,:,:,:1024]
         grid = make_grid(comparison, nrow=4, normalize=False).cpu()
         if mode == "train":
             writer.add_image('Denoised Images Training', grid, global_step=epoch * len_dataloader + batch_idx)
@@ -313,6 +314,9 @@ def main(argv):
     #for methode in methoden_liste:
     for methode, method_params in config.methodes.items():
 
+        if "s2self" in methode:
+            continue
+
         #create to folders for loging details
         store_path = Path(os.path.join(store_path_root, methode))
         store_path.mkdir(parents=True, exist_ok=True)
@@ -332,11 +336,9 @@ def main(argv):
             model = TestNet(1,1).to(device)
         else:
             if "n2same" in methode or "n2info" in methode:
-                model = U_Net(1, first_out_chanel=96, scaling_kernel_size=(1,2), batchNorm=method_params['batchNorm']).to(device)
-            elif "s2self" in methode:
-                model = P_U_Net(in_chanel=1, batchNorm=method_params['batchNorm'], dropout=method_params['dropout']).to(device)
+                model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,2), batchNorm=method_params['batchNorm']).to(device)
             else:
-                model = U_Net(1, scaling_kernel_size=(1,2), batchNorm=method_params['batchNorm']).to(device)
+                model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,2), batchNorm=method_params['batchNorm']).to(device)
         #configAtr = getattr(config, methode) #config.methode wobei methode ein string ist
         optimizer = torch.optim.Adam(model.parameters(), lr=method_params['lr'])
         if method_params['sheduler']:

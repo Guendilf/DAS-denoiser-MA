@@ -1,4 +1,5 @@
 import numpy as np
+import statistics
 import os
 from pathlib import Path
 from tqdm import tqdm
@@ -23,7 +24,7 @@ batchnorm = True
 save_model = False
 snr_level = log_SNR=(-2,4)#default, ist weas anderes
 
-bestPsnr=0
+
 
 """
 TODO:
@@ -35,9 +36,9 @@ TODO:
     
     
 def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len_dataloader, batch_idx, model, store):
-    comparison = torch.cat((clean[:4], denoised[:4], noise_images[:4]), dim=0)
-    comparison = comparison[:,:,:,:1024]
-    grid = make_grid(comparison, nrow=4, normalize=False).cpu()
+    comparison = torch.cat((clean[:1], denoised[:1], noise_images[:1]), dim=0)
+    comparison = comparison[:,:,:,:512]
+    grid = make_grid(comparison, nrow=1, normalize=False).cpu()
     if mode == "train":
         writer.add_image('Denoised Training', grid, global_step=epoch * len_dataloader + batch_idx)
     elif mode == "validate":
@@ -98,10 +99,9 @@ def calculate_loss(noise_image, model, batch_idx):
     denoised = model(masked_noise_image)
     return torch.nn.MSELoss()(denoised*mask, noise_image*mask), denoised
 
-def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path):
+def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path, bestPsnr):
     loss_log = []
     psnr_log = []
-    global bestPsnr
     for batch_idx, (noise_images, clean, noise, std, amp) in enumerate(dataLoader):
         clean = clean.to(device).type(torch.float32)
         noise_images = noise_images.to(device).type(torch.float32)
@@ -127,12 +127,13 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path)
         #log data
         psnr_log.append(round(psnr.item(),3))
         loss_log.append(loss.item())
+        writer.add_scalar(f'Sigma {mode}', noise.std(), global_step=epoch * len(dataLoader) + batch_idx)
         #show picture
         if psnr > bestPsnr + 0.5:
             if psnr > bestPsnr:
                 bestPsnr = psnr
             saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path)
-    return loss_log, psnr_log
+    return loss_log, psnr_log, bestPsnr
 
 def main(arggv):
     print("Starte Programm!")
@@ -174,14 +175,17 @@ def main(arggv):
     """
     writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
 
+    bestPsnrTrain=0
+    bestPsnrVal=0
+    bestPsnrTest=0
     for epoch in tqdm(range(epochs)):
 
-        loss, psnr = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path)
+        loss, psnr, bestPsnrTrain = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
         for i, loss_item in enumerate(loss):
             writer.add_scalar('Train Loss', loss_item, epoch * len(dataLoader) + i)
             writer.add_scalar('Train PSNR', psnr[i], epoch * len(dataLoader) + i)
 
-        loss_val, psnr_val = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, store_path=store_path)
+        loss_val, psnr_val, bestPsnrVal = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrVal) 
         for i, loss_item in enumerate(loss_val):
             writer.add_scalar('Val Loss', loss_item, epoch * len(dataLoader) + i)
             writer.add_scalar('Val PSNR', psnr_val[i], epoch * len(dataLoader) + i)
@@ -194,10 +198,9 @@ def main(arggv):
                 f = open(model_save_path, "x")
                 f.close()
 
-    loss_test, psnr_test = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, store_path=store_path)
-    for i, loss_item in enumerate(loss_test):
-        writer.add_scalar('Test Loss', loss_item, epoch * len(dataLoader) + i)
-        writer.add_scalar('Test PSNR', psnr_test[i], epoch * len(dataLoader) + i)
+    loss_test, psnr_test, bestPsnrTest = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, store_path=store_path, bestPsnr=bestPsnrTest)
+    writer.add_scalar('Test Loss', statistics.mean(loss_test), 0)
+    writer.add_scalar('Test PSNR', statistics.mean(psnr_test), 0)
 
 if __name__ == '__main__':
     app.run(main)
