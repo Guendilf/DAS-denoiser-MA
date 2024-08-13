@@ -52,12 +52,11 @@ def n2self(noise_image, batch_idx, model):
     return torch.nn.MSELoss()(denoised*mask, noise_image*mask), denoised, masked_noise_image
 
 def n2self_DAS(noise_image, batch_idx, model):
-    mask = torch.ones_like(noise_image).to(noise_image.device)
+    mask = torch.zeros_like(noise_image).to(noise_image.device)
     for i in range(mask.shape[0]):
-        mask[i, :, np.random.randint(0, mask.shape[2]), :] = 0
-    masked_noise_image = mask * noise_image
+        mask[i, :, np.random.randint(0, mask.shape[2]), :] = 1
+    masked_noise_image = (1-mask) * noise_image
     denoised = model(masked_noise_image)
-    #j_invariant_denoised = n2self_infer_full_image(noise_image, model)  #TODO: weiß noch nicht was das ist und wofür es benutzt wird
     return torch.nn.MSELoss()(denoised*mask, noise_image*mask), denoised, masked_noise_image
 
 
