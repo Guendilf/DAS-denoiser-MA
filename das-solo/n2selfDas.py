@@ -23,6 +23,7 @@ lr = 0.0001
 batchnorm = True
 save_model = False
 snr_level = log_SNR=(-2,4)#default, ist weas anderes
+gauge_length = 19.2
 
 
 
@@ -147,9 +148,9 @@ def main(arggv):
     print("lade Datensätze ...")
     eq_strain_rates = np.load(strain_dir)
     eq_strain_rates = torch.tensor(eq_strain_rates)
-    dataset = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsTrain, size=1000, log_SNR=snr_level, mode="train")
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsVal, size=100, log_SNR=snr_level, mode="val")
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsTest, size=100, log_SNR=snr_level, mode="test")
+    dataset = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsTrain, size=1000, gauge=gauge_length, log_SNR=snr_level, mode="train")
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsVal, size=100, gauge=gauge_length, log_SNR=snr_level, mode="val")
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsTest, size=100, gauge=gauge_length, log_SNR=snr_level, mode="test")
 
     store_path_root = log_files()
 
@@ -182,13 +183,13 @@ def main(arggv):
 
         loss, psnr, bestPsnrTrain = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
         for i, loss_item in enumerate(loss):
-            writer.add_scalar('Train Loss', loss_item, epoch * len(dataLoader) + i)
-            writer.add_scalar('Train PSNR', psnr[i], epoch * len(dataLoader) + i)
+            writer.add_scalar('Loss Train', loss_item, epoch * len(dataLoader) + i)
+            writer.add_scalar('PSNR Train', psnr[i], epoch * len(dataLoader) + i)
 
         loss_val, psnr_val, bestPsnrVal = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrVal) 
         for i, loss_item in enumerate(loss_val):
-            writer.add_scalar('Val Loss', loss_item, epoch * len(dataLoader) + i)
-            writer.add_scalar('Val PSNR', psnr_val[i], epoch * len(dataLoader) + i)
+            writer.add_scalar('Loss Val', loss_item, epoch * len(dataLoader) + i)
+            writer.add_scalar('PSNR Val', psnr_val[i], epoch * len(dataLoader) + i)
 
         if epoch % 5 == 0  or epoch==epochs-1:
             model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
@@ -199,8 +200,8 @@ def main(arggv):
                 f.close()
 
     loss_test, psnr_test, bestPsnrTest = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, store_path=store_path, bestPsnr=bestPsnrTest)
-    writer.add_scalar('Test Loss', statistics.mean(loss_test), 0)
-    writer.add_scalar('Test PSNR', statistics.mean(psnr_test), 0)
+    writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)
+    writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 0)
 
 if __name__ == '__main__':
     app.run(main)
