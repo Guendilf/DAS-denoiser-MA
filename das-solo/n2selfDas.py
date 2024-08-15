@@ -3,6 +3,7 @@ import statistics
 import os
 from pathlib import Path
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 import torch
 from torchvision.utils import make_grid
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -14,8 +15,8 @@ from import_files import U_Net
 from import_files import SyntheticNoiseDAS
 
 
-epochs = 20
-batchsize = 18
+epochs = 70
+batchsize = 32
 dasChanelsTrain = 11
 dasChanelsVal = 11
 dasChanelsTest = 11
@@ -103,9 +104,11 @@ def calculate_loss(noise_image, model, batch_idx):
 def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path, bestPsnr):
     loss_log = []
     psnr_log = []
+    scaledVariance_log = []
     for batch_idx, (noise_images, clean, noise, std, amp) in enumerate(dataLoader):
         clean = clean.to(device).type(torch.float32)
         noise_images = noise_images.to(device).type(torch.float32)
+        std = std.to(device)
         if mode == "train":
             model.train()
             loss, denoised = calculate_loss(noise_images, model, batch_idx)
@@ -124,17 +127,21 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         max_intensity=clean.max()-clean.min()
         mse = torch.mean((clean-denoised)**2)
         psnr = 10 * torch.log10((max_intensity ** 2) / mse)
+        #calculatte scaled variance (https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277/1?file=26674421) In[13]
+        sv = torch.mean((noise_images/std - denoised)**2, dim=-1) / torch.mean((noise_images/std)**2, dim=-1)
+        sv = torch.mean(sv)#, dim=-1)
 
         #log data
         psnr_log.append(round(psnr.item(),3))
         loss_log.append(loss.item())
+        scaledVariance_log.append(round(sv.item(),3))
         writer.add_scalar(f'Sigma {mode}', noise.std(), global_step=epoch * len(dataLoader) + batch_idx)
         #show picture
         if psnr > bestPsnr + 0.5:
             if psnr > bestPsnr:
                 bestPsnr = psnr
             saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path)
-    return loss_log, psnr_log, bestPsnr
+    return loss_log, psnr_log, scaledVariance_log, bestPsnr
 
 def main(arggv):
     print("Starte Programm!")
@@ -148,9 +155,10 @@ def main(arggv):
     print("lade Datensätze ...")
     eq_strain_rates = np.load(strain_dir)
     eq_strain_rates = torch.tensor(eq_strain_rates)
-    dataset = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsTrain, size=1000, gauge=gauge_length, log_SNR=snr_level, mode="train")
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsVal, size=100, gauge=gauge_length, log_SNR=snr_level, mode="val")
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsTest, size=100, gauge=gauge_length, log_SNR=snr_level, mode="test")
+    slowness = 1/(gauge_length*50.0)
+    dataset = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsTrain, size=1000, gauge=gauge_length, log_SNR=snr_level, eq_slowness=slowness, mode="train")
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsVal, size=100, gauge=gauge_length, log_SNR=snr_level, eq_slowness=slowness, mode="val")
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsTest, size=100, gauge=gauge_length, log_SNR=snr_level, eq_slowness=slowness, mode="test")
 
     store_path_root = log_files()
 
@@ -181,15 +189,17 @@ def main(arggv):
     bestPsnrTest=0
     for epoch in tqdm(range(epochs)):
 
-        loss, psnr, bestPsnrTrain = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
+        loss, psnr, scaledVariance_log, bestPsnrTrain = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
         for i, loss_item in enumerate(loss):
             writer.add_scalar('Loss Train', loss_item, epoch * len(dataLoader) + i)
             writer.add_scalar('PSNR Train', psnr[i], epoch * len(dataLoader) + i)
+            writer.add_scalar('Scaled Variance Train', scaledVariance_log[i], epoch * len(dataLoader) + i)
 
-        loss_val, psnr_val, bestPsnrVal = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrVal) 
+        loss_val, psnr_val, scaledVariance_log_val, bestPsnrVal = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrVal) 
         for i, loss_item in enumerate(loss_val):
             writer.add_scalar('Loss Val', loss_item, epoch * len(dataLoader) + i)
             writer.add_scalar('PSNR Val', psnr_val[i], epoch * len(dataLoader) + i)
+            writer.add_scalar('Scaled Variance Val', scaledVariance_log_val[i], epoch * len(dataLoader) + i)
 
         if epoch % 5 == 0  or epoch==epochs-1:
             model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
@@ -199,9 +209,10 @@ def main(arggv):
                 f = open(model_save_path, "x")
                 f.close()
 
-    loss_test, psnr_test, bestPsnrTest = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, store_path=store_path, bestPsnr=bestPsnrTest)
+    loss_test, psnr_test, scaledVariance_log_test, bestPsnrTest = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, store_path=store_path, bestPsnr=bestPsnrTest)
     writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)
     writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 0)
+    writer.add_scalar('Scaled Variance Test', statistics.mean(scaledVariance_log_test), 0)
 
 if __name__ == '__main__':
     app.run(main)

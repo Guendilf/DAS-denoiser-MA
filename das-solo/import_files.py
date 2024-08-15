@@ -155,7 +155,8 @@ class SyntheticNoiseDAS(Dataset):
         if np.random.random() < 0.5:
             eq_strain_rate *= -1
             
-        slowness = np.random.uniform(*self.eq_slowness)
+        #slowness = np.random.uniform(*self.eq_slowness)
+        slowness = self.eq_slowness
         if np.random.random() < 0.5:
             slowness *= -1
         eq_das = generate_synthetic_das(eq_strain_rate, self.gauge, self.fs, slowness, nx=self.nx)
