@@ -31,6 +31,7 @@ class U_Net(nn.Module):
         
         self.encoder2 = nn.Sequential(
             nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            #BlurPool(first_out_chanel, stride=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
             doubleConv(first_out_chanel, first_out_chanel*2, conv_kernel, batchNorm),
         )
         self.encoder3 = nn.Sequential(
@@ -94,6 +95,7 @@ class Up(nn.Module):
 
     def forward(self, x1, x2=None):
         x = self.up(x1)
+        #x = nn.functional.interpolate(x1, scale_factor=self.scaling_kernel_size, mode='bilinear', align_corners=True)
         if x2 is not None:  # skip konnection (immer auser bei N2Same)
             x = torch.cat((x, x2), dim=1)
         return self.conv(x)
@@ -119,10 +121,32 @@ class doubleConv(nn.Module):
         if self.norm:
             x = self.normLayer2(x)
         return nn.functional.relu(x)
+    
+class BlurPool(nn.Module):
+    #for antialiasing downsampling
+    def __init__(self, channels, stride=2):
+        super(BlurPool, self).__init__()
+        self.stride = stride
+        self.channels = channels
+
+        # Define a 2D Gaussian kernel
+        kernel = torch.tensor([[1., 2., 1.],
+                               [2., 4., 2.],
+                               [1., 2., 1.]])
+        kernel = kernel / kernel.sum()
+        kernel = kernel[None, None, :, :].repeat(channels, 1, 1, 1)
+
+        self.register_buffer('weight', kernel)
+
+    def forward(self, x):
+        x = nn.functional.pad(x, (1, 1, 1, 1), mode='reflect')
+        x = nn.functional.conv2d(x, self.weight, stride=self.stride, groups=self.channels)
+        return x
 
 def layer_init(layer, std=0.1, bias_const=0.0):
     if isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear):
-        nn.init.kaiming_normal_(layer.weight)
+        #nn.init.kaiming_normal_(layer.weight)
+        nn.init.orthogonal_(layer.weight)
         nn.init.constant_(layer.bias, 0)
 
 
@@ -155,8 +179,8 @@ class SyntheticNoiseDAS(Dataset):
         if np.random.random() < 0.5:
             eq_strain_rate *= -1
             
-        #slowness = np.random.uniform(*self.eq_slowness)
-        slowness = self.eq_slowness
+        slowness = np.random.uniform(*self.eq_slowness)
+        #slowness = self.eq_slowness
         if np.random.random() < 0.5:
             slowness *= -1
         eq_das = generate_synthetic_das(eq_strain_rate, self.gauge, self.fs, slowness, nx=self.nx)
@@ -164,7 +188,7 @@ class SyntheticNoiseDAS(Dataset):
         eq_das = eq_das[:,j:j+self.nt]
         #"""
         snr = 10 ** np.random.uniform(*self.log_SNR)  # log10-uniform distribution
-        amp = 2 * np.sqrt(snr) / torch.abs(eq_das + 1e-10).max()
+        amp = 2 * np.sqrt(snr) / torch.abs(eq_das + 1e-10).max() #rescale so, max amplitude = 2*wrt(snr)
         eq_das *= amp
 
         # 1-10 Hz filtered Gaussian white noise
