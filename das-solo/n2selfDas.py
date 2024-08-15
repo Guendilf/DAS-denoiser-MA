@@ -15,16 +15,19 @@ from import_files import U_Net
 from import_files import SyntheticNoiseDAS
 
 
-epochs = 70
+epochs = 100 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 32
 dasChanelsTrain = 11
 dasChanelsVal = 11
 dasChanelsTest = 11
 lr = 0.0001
-batchnorm = True
+batchnorm = False
 save_model = False
+
 snr_level = log_SNR=(-2,4)#default, ist weas anderes
-gauge_length = 19.2
+gauge_length = 30#real sind 19.2
+snr = (np.log(0.01), np.log(10))
+slowness = (0.2*10**3, 10*10**3) #angabe in m/s, laut paper 0.2 bis 10 km/s
 
 modi = 0
 
@@ -114,7 +117,7 @@ def calculate_loss(noise_image, model, batch_idx):
         mask[i, :, np.random.randint(0, mask.shape[2]), :] = 1
     masked_noise_image = (1-mask) * noise_image
     denoised = model(masked_noise_image)
-    return torch.nn.MSELoss()(denoised*mask, noise_image*mask), denoised
+    return torch.nn.MSELoss()(denoised*(mask), noise_image*(mask)), denoised
 
 def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path, bestPsnr):
     global modi
@@ -145,6 +148,8 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         if modi == 2:
             denoised = denoised*std
         max_intensity=clean.max()-clean.min()
+        if modi == 3:
+            max_intensity=denoised.max()-denoised.min()
         mse = torch.mean((clean-denoised)**2)
         psnr = 10 * torch.log10((max_intensity ** 2) / mse)
         #calculatte scaled variance (https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277/1?file=26674421) In[13]
@@ -170,19 +175,23 @@ def main(arggv):
     else:
         device = "cuda:3"
     
-    strain_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
+    strain_train_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
+    strain_test_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
 
     print("lade Datensätze ...")
-    eq_strain_rates = np.load(strain_dir)
-    eq_strain_rates = torch.tensor(eq_strain_rates)
-    slowness = 1/(gauge_length*50.0)
-    dataset = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsTrain, size=1000, gauge=gauge_length, log_SNR=snr_level, eq_slowness=slowness, mode="train")
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsVal, size=100, gauge=gauge_length, log_SNR=snr_level, eq_slowness=slowness, mode="val")
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates, nx=dasChanelsTest, size=100, gauge=gauge_length, log_SNR=snr_level, eq_slowness=slowness, mode="test")
+    eq_strain_rates = np.load(strain_train_dir)
+    split_idx = int(0.8 * len(eq_strain_rates))
+    eq_strain_rates_train = torch.tensor(eq_strain_rates[:split_idx])
+    eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
+    eq_strain_rates_test = np.load(strain_test_dir)
+    eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=3424, mode="train")
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=640, mode="val")
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=640, mode="test")
 
     store_path_root = log_files()
     global modi
-    for i in range(3):
+    for i in range(4):
 
         store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
