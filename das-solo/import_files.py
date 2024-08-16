@@ -30,20 +30,23 @@ class U_Net(nn.Module):
         self.encoder1 = doubleConv(in_chanel, first_out_chanel, conv_kernel=3, norm=batchNorm)
         
         self.encoder2 = nn.Sequential(
-            nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
-            #BlurPool(first_out_chanel, stride=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
+            #nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            BlurPool(first_out_chanel, stride=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
             doubleConv(first_out_chanel, first_out_chanel*2, conv_kernel, batchNorm),
         )
         self.encoder3 = nn.Sequential(
-            nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            #nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            BlurPool(first_out_chanel*2, stride=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
             doubleConv(first_out_chanel*2, first_out_chanel*4, conv_kernel, batchNorm),
         )
         self.encoder4 = nn.Sequential(
-            nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            #nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            BlurPool(first_out_chanel*4, stride=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
             doubleConv(first_out_chanel*4, first_out_chanel*8, conv_kernel, batchNorm),
         )
         self.encoder5 = nn.Sequential(
-            nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            #nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
+            BlurPool(first_out_chanel*8, stride=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
             doubleConv(first_out_chanel*8, first_out_chanel*16, conv_kernel, batchNorm),
         )
 
@@ -56,11 +59,11 @@ class U_Net(nn.Module):
 
     def forward(self, x):
         # Encoder
-        skip1 = self.encoder1(x)  # (N, 64, 128, 128)
-        skip2 = self.encoder2(skip1)  # (N, 128, 64, 64)
-        skip3 = self.encoder3(skip2)  # (N, 256, 32, 32)
-        skip4 = self.encoder4(skip3)  # (N, 512, 16, 16)
-        result = self.encoder5(skip4)  # (N, 1024, 8, 8)
+        skip1 = self.encoder1(x)  # (N, 4, 11, 2048)
+        skip2 = self.encoder2(skip1)  # (N, 8, 11, 512)
+        skip3 = self.encoder3(skip2)  # (N, 16, 11, 128)
+        skip4 = self.encoder4(skip3)  # (N, 32, 11, 32)
+        result = self.encoder5(skip4)  # (N, 64, 11, 8)
         #print(x.shape)
         #print(skip1.shape)
         #print(skip2.shape) 
@@ -85,8 +88,9 @@ class Up(nn.Module):
 
     def __init__(self, in_channel, out_channel, scaling_kernel_size, conv_kernel, batchNorm, skipConnection=True):
         super().__init__()
-
+        self.scaling_kernel_size = scaling_kernel_size
         self.up = nn.ConvTranspose2d(in_channel, in_channel // 2, kernel_size=scaling_kernel_size, stride=scaling_kernel_size)
+        self.reduceChanel = nn.Conv2d(in_channel, in_channel//2, kernel_size=1)
         if skipConnection == True:
             self.conv = doubleConv(in_channel, out_channel, conv_kernel, batchNorm)
         else: 
@@ -94,8 +98,9 @@ class Up(nn.Module):
         self.apply(layer_init)
 
     def forward(self, x1, x2=None):
-        x = self.up(x1)
-        #x = nn.functional.interpolate(x1, scale_factor=self.scaling_kernel_size, mode='bilinear', align_corners=True)
+        #x = self.up(x1)
+        x = nn.functional.interpolate(x1, scale_factor=self.scaling_kernel_size, mode='bilinear', align_corners=True)
+        x = self.reduceChanel(x)
         if x2 is not None:  # skip konnection (immer auser bei N2Same)
             x = torch.cat((x, x2), dim=1)
         return self.conv(x)

@@ -9,6 +9,8 @@ from torchvision.utils import make_grid
 from torch.utils.data import Dataset, DataLoader, random_split
 from absl import app
 from torch.utils.tensorboard import SummaryWriter
+import io
+from PIL import Image
 
 from import_files import log_files
 from import_files import U_Net
@@ -27,7 +29,7 @@ save_model = False
 snr_level = log_SNR=(-2,4)#default, ist weas anderes
 gauge_length = 30#real sind 19.2
 snr = (np.log(0.01), np.log(10))
-slowness = (0.2*10**3, 10*10**3) #angabe in m/s, laut paper 0.2 bis 10 km/s
+slowness = (0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
 
 modi = 0
 
@@ -40,7 +42,7 @@ TODO:
 - anderer loss?
 """
 def show_das(original):
-    if original is torch.Tensor:
+    if isinstance(original, torch.Tensor):
         original = original.to('cpu').detach().numpy()
     original = original[0]
     plt.figure(figsize=(7, 11))
@@ -54,17 +56,56 @@ def show_das(original):
         #plt.title(f'Channel {i + 1}')
         plt.tight_layout()
     plt.show()
+
+def save_das_graph(original, denoised, noise):
+    def plot_das(data, title, ax):
+        if isinstance(data, torch.Tensor):
+            data = data.to('cpu').detach().numpy()
+        data = data[0]
+        for i in range(data.shape[1]):
+            sr = data[0][i] / data[0][i].std()
+            #sr = data[0][i]
+            ax.plot(sr + 3*i, c="k", lw=0.5, alpha=1)
+        ax.set_title(title)
+        ax.set_axis_off()
+    
+    # Erstelle eine Figur mit 3 Subplots
+    fig, axs = plt.subplots(3, 1, figsize=(7, 15))
+    plot_das(original, 'Original (Clean)', axs[0])
+    plot_das(denoised, 'Reconstructed', axs[1])
+    plot_das(noise, 'Noise', axs[2])
+    plt.tight_layout()
+    
+    return fig
     
 def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len_dataloader, batch_idx, model, store):
-    comparison = torch.cat((clean[:1], denoised[:1], noise_images[:1]), dim=0)
-    comparison = comparison[:,:,:,:512]
-    grid = make_grid(comparison, nrow=1, normalize=False).cpu()
+    #comparison = torch.cat((clean[:1], denoised[:1], noise_images[:1]), dim=0)
+    #comparison = comparison[:,:,:,:512]
+    #grid = make_grid(comparison, nrow=1, normalize=False).cpu()
+
+    clean = clean[:1]
+    clean = clean[:,:,:,0:512]
+    noise_images = noise_images[:1]
+    noise_images = noise_images[:,:,:,0:512]
+    denoised = denoised[:1]
+    denoised = denoised[:,:,:,0:512]
+    fig = save_das_graph(clean, denoised, noise_images)
+    # Speichere das Bild in TensorBoard
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    plt.close(fig)
+    buf.seek(0)
+    image = np.array(Image.open(buf))
+
     if mode == "train":
-        writer.add_image('Denoised Training', grid, global_step=epoch * len_dataloader + batch_idx)
+        #writer.add_image('Denoised Training', grid, global_step=epoch * len_dataloader + batch_idx)
+        writer.add_image('Denoised Training', image, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
     elif mode == "validate":
-        writer.add_image('Denoised Validation', grid, global_step=epoch * len_dataloader + batch_idx)
+        #writer.add_image('Denoised Validation', grid, global_step=epoch * len_dataloader + batch_idx)
+        writer.add_image('Denoised Validation', image, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
     else:
-        writer.add_image('Denoised Test', grid, global_step=1 * len_dataloader + batch_idx)
+        #writer.add_image('Denoised Test', grid, global_step=1 * len_dataloader + batch_idx)
+        writer.add_image('Denoised Test', image, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
     if "test" not in mode:
         print(f"best model found with psnr: {psnr}")
         model_save_path = os.path.join(store, "models", f"{round(psnr, 1)}-{mode}-{epoch}-{batch_idx}.pth")
@@ -146,7 +187,13 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
                 loss, denoised = calculate_loss(noise_images, model, batch_idx)
         #calculate psnr
         if modi == 2:
-            denoised = denoised*std
+            denoised_psnr = denoised/denoised.std(dim=2, keepdim=True)
+            clean_psnr = clean/clean.std(dim=2, keepdim=True)
+            max_intensity=clean_psnr.max()-clean_psnr.min()
+            mse = torch.mean((clean_psnr-denoised_psnr)**2)
+            psnr = 10 * torch.log10((max_intensity ** 2) / mse)
+            sv = torch.mean((noise_images/std - denoised_psnr)**2, dim=-1) / torch.mean((noise_images/std)**2, dim=-1)
+            sv = torch.mean(sv)#, dim=-1)
         max_intensity=clean.max()-clean.min()
         if modi == 3:
             max_intensity=denoised.max()-denoised.min()
@@ -161,7 +208,6 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         loss_log.append(loss.item())
         scaledVariance_log.append(round(sv.item(),3))
         writer.add_scalar(f'Sigma {mode}', noise.std(), global_step=epoch * len(dataLoader) + batch_idx)
-        #show picture
         if psnr > bestPsnr + 0.5:
             if psnr > bestPsnr:
                 bestPsnr = psnr
