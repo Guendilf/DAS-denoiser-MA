@@ -31,22 +31,22 @@ class U_Net(nn.Module):
         
         self.encoder2 = nn.Sequential(
             #nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
-            BlurPool(first_out_chanel, stride=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
+            BlurPool(in_chanel=first_out_chanel, kernel_size=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
             doubleConv(first_out_chanel, first_out_chanel*2, conv_kernel, batchNorm),
         )
         self.encoder3 = nn.Sequential(
             #nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
-            BlurPool(first_out_chanel*2, stride=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
+            BlurPool(in_chanel=first_out_chanel*2, kernel_size=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
             doubleConv(first_out_chanel*2, first_out_chanel*4, conv_kernel, batchNorm),
         )
         self.encoder4 = nn.Sequential(
             #nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
-            BlurPool(first_out_chanel*4, stride=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
+            BlurPool(in_chanel=first_out_chanel*4, kernel_size=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
             doubleConv(first_out_chanel*4, first_out_chanel*8, conv_kernel, batchNorm),
         )
         self.encoder5 = nn.Sequential(
             #nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
-            BlurPool(first_out_chanel*8, stride=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
+            BlurPool(in_chanel=first_out_chanel*8, kernel_size=scaling_kernel_size),  # Replace MaxPool2d with BlurPool
             doubleConv(first_out_chanel*8, first_out_chanel*16, conv_kernel, batchNorm),
         )
 
@@ -130,24 +130,28 @@ class doubleConv(nn.Module):
         return nn.functional.silu(x)
     
 class BlurPool(nn.Module):
-    #for antialiasing downsampling
-    def __init__(self, channels, stride=2):
+    def __init__(self, in_chanel, kernel_size=(1, 4)):
         super(BlurPool, self).__init__()
-        self.stride = stride
-        self.channels = channels
+        self.kernel_size = kernel_size
+        self.in_chanel = in_chanel
 
-        # Define a 2D Gaussian kernel
-        kernel = torch.tensor([[1., 2., 1.],
-                               [2., 4., 2.],
-                               [1., 2., 1.]])
-        kernel = kernel / kernel.sum()
-        kernel = kernel[None, None, :, :].repeat(channels, 1, 1, 1)
-
-        self.register_buffer('weight', kernel)
-
+        # Erstellen eines 1D-Blur-Kernels
+        a = torch.tensor([1., 3., 3., 1.], dtype=torch.float32)
+        a = a / a.sum()
+        
+        # Wiederhole den Kernel für alle Kanäle
+        a = a.view(1, 1, *kernel_size).repeat(in_chanel, 1, 1, 1)
+        self.register_buffer('blur_kernel', a)
+    
     def forward(self, x):
-        x = nn.functional.pad(x, (1, 1, 1, 1), mode='reflect')
-        x = nn.functional.conv2d(x, self.weight, stride=self.stride, groups=self.channels)
+        # MaxPooling
+        x = nn.functional.max_pool2d(x, kernel_size=self.kernel_size, stride=(1, 1), padding=0)
+        padding_h = (self.kernel_size[0] - 1) // 2 #0
+        padding_w = (self.kernel_size[1] - 1) // 2 #1
+        padding_w = 2
+        # Blur-Filter anwenden
+        x = nn.functional.conv2d(x, self.blur_kernel, stride=self.kernel_size, padding=(padding_h, padding_w), groups=self.in_chanel)
+        
         return x
 
 def layer_init(layer, std=0.1, bias_const=0.0):
@@ -194,7 +198,10 @@ class SyntheticNoiseDAS(Dataset):
         j = np.random.randint(0, eq_strain_rate.shape[-1]-self.nt+1)
         eq_das = eq_das[:,j:j+self.nt]
         #"""
-        snr = 10 ** np.random.uniform(*self.log_SNR)  # log10-uniform distribution
+        if isinstance(self.log_SNR, tuple):
+            snr = 10 ** np.random.uniform(*self.log_SNR)  # log10-uniform distribution
+        else:
+            snr = 10 ** self.log_SNR
         amp = 2 * np.sqrt(snr) / torch.abs(eq_das + 1e-10).max() #rescale so, max amplitude = 2*wrt(snr)
         eq_das *= amp
 
