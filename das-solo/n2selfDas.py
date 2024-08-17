@@ -86,7 +86,7 @@ def save_das_graph(original, denoised, noise):
     
     return fig
     
-def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len_dataloader, batch_idx, model, store):
+def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len_dataloader, batch_idx, model, store, best):
     #comparison = torch.cat((clean[:1], denoised[:1], noise_images[:1]), dim=0)
     #comparison = comparison[:,:,:,:512]
     #grid = make_grid(comparison, nrow=1, normalize=False).cpu()
@@ -114,7 +114,7 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len
     else:
         #writer.add_image('Denoised Test', grid, global_step=1 * len_dataloader + batch_idx)
         writer.add_image('Denoised Test', image, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
-    if "-1" in store:
+    if not best:
         return
     if "test" not in mode:
         print(f"best model found with psnr: {psnr}")
@@ -173,8 +173,8 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         if psnr > bestPsnr + 0.5:
             if psnr > bestPsnr:
                 bestPsnr = psnr
-            saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path)
-    saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, "-1")
+            saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
+    saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, False)
     return loss_log, psnr_log, scaledVariance_log, bestPsnr
 
 def main(arggv):
