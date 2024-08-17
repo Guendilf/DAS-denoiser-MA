@@ -157,6 +157,14 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
             with torch.no_grad():
                 model.eval()
                 loss, denoised = calculate_loss(noise_images, model, batch_idx)
+            if modi == 1:
+                buffer = torch.zeros_like(denoised).to(device)
+                for i in range(denoised[0][0].shape[0]):
+                    mask = torch.zeros_like(denoised).to(device)
+                    mask[:,:,i,:] = 1
+                    j_denoised = model(noise_images*(1-mask))
+                    buffer += j_denoised*mask
+                denoised = buffer
         #calculate psnr
         max_intensity=clean.max()-clean.min()
         mse = torch.mean((clean-denoised)**2)
@@ -200,7 +208,11 @@ def main(arggv):
 
     store_path_root = log_files()
     global modi
-    for i in range(1):
+    for i in range(3):
+        if modi ==2:
+            dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=2, gauge=gauge_length, size=3424, mode="train")
+            dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=2, gauge=gauge_length, size=640, mode="val")
+            dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=2, gauge=gauge_length, size=640, mode="test")
 
         store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
@@ -230,16 +242,26 @@ def main(arggv):
         for epoch in tqdm(range(epochs)):
 
             loss, psnr, scaledVariance_log, bestPsnrTrain = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
+            """
             for i, loss_item in enumerate(loss):
                 writer.add_scalar('Loss Train', loss_item, epoch * len(dataLoader) + i)
                 writer.add_scalar('PSNR Train', psnr[i], epoch * len(dataLoader) + i)
                 writer.add_scalar('Scaled Variance Train', scaledVariance_log[i], epoch * len(dataLoader) + i)
+            """
+            writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
+            writer.add_scalar('PSNR Train', statistics.mean(psnr), epoch)
+            writer.add_scalar('Scaled Variance Train', statistics.mean(scaledVariance_log), epoch)
 
             loss_val, psnr_val, scaledVariance_log_val, bestPsnrVal = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrVal) 
+            """
             for i, loss_item in enumerate(loss_val):
                 writer.add_scalar('Loss Val', loss_item, epoch * len(dataLoader) + i)
                 writer.add_scalar('PSNR Val', psnr_val[i], epoch * len(dataLoader) + i)
                 writer.add_scalar('Scaled Variance Val', scaledVariance_log_val[i], epoch * len(dataLoader) + i)
+            """
+            writer.add_scalar('Loss Val', statistics.mean(loss_val), epoch)
+            writer.add_scalar('PSNR Val', statistics.mean(psnr_val), epoch)
+            writer.add_scalar('Scaled Variance Val', statistics.mean(scaledVariance_log_val), epoch)
 
             if epoch % 5 == 0  or epoch==epochs-1:
                 model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
