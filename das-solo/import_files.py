@@ -122,10 +122,12 @@ class doubleConv(nn.Module):
         x = self.conv1(x)
         if self.norm:
             x = self.normLayer1(x)
-        x = self.conv2(nn.functional.relu(x))
+        #x = self.conv2(nn.functional.relu(x))
+        x = self.conv2(nn.functional.silu(x))
         if self.norm:
             x = self.normLayer2(x)
-        return nn.functional.relu(x)
+        #return nn.functional.relu(x)
+        return nn.functional.silu(x)
     
 class BlurPool(nn.Module):
     #for antialiasing downsampling

@@ -27,19 +27,18 @@ batchnorm = False
 save_model = False
 
 snr_level = log_SNR=(-2,4)#default, ist weas anderes
-gauge_length = 30#real sind 19.2
-snr = (np.log(0.01), np.log(10))
-slowness = (0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
+gauge_length = 19.2 #30 for synthhetic?
+snr = (-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
+slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
 
-modi = 0
+modi = 0 #testing diffrent setups
 
 
 """
 TODO:
-- swuish activation funktion with ??? parameter
+- swuish activation funktion with ??? parameter     -> Sigmoid Linear Unit (SiLU) function
 - gauge = 19,2
 - 50 Hz frequenz
-- anderer loss?
 """
 def show_das(original):
     if isinstance(original, torch.Tensor):
@@ -58,22 +57,31 @@ def show_das(original):
     plt.show()
 
 def save_das_graph(original, denoised, noise):
-    def plot_das(data, title, ax):
+    def plot_das(data, title, ax, batch_idx):
         if isinstance(data, torch.Tensor):
             data = data.to('cpu').detach().numpy()
-        data = data[0]
+        data = data[batch_idx]
         for i in range(data.shape[1]):
-            sr = data[0][i] / data[0][i].std()
+            std = data[0][i].std()
+            if std == 0:
+                std = 0.000000001
+            sr = data[0][i] / std
             #sr = data[0][i]
             ax.plot(sr + 3*i, c="k", lw=0.5, alpha=1)
         ax.set_title(title)
         ax.set_axis_off()
     
     # Erstelle eine Figur mit 3 Subplots
-    fig, axs = plt.subplots(3, 1, figsize=(7, 15))
-    plot_das(original, 'Original (Clean)', axs[0])
-    plot_das(denoised, 'Reconstructed', axs[1])
-    plot_das(noise, 'Noise', axs[2])
+    fig, axs = plt.subplots(3, 2, figsize=(14, 15))
+
+    # Erste Spalte - Batch 0
+    plot_das(original, 'Original (Clean) 1', axs[0, 0], 0)
+    plot_das(denoised, 'Reconstructed 1', axs[1, 0], 0)
+    plot_das(noise, 'Noise 1', axs[2, 0], 0)
+    # Zweite Spalte - Batch 1
+    plot_das(original, 'Original (Clean) 2', axs[0, 1], 1)
+    plot_das(denoised, 'Reconstructed 2', axs[1, 1], 1)
+    plot_das(noise, 'Noise 2', axs[2, 1], 1)
     plt.tight_layout()
     
     return fig
@@ -83,11 +91,11 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len
     #comparison = comparison[:,:,:,:512]
     #grid = make_grid(comparison, nrow=1, normalize=False).cpu()
 
-    clean = clean[:1]
+    clean = clean[:2]
     clean = clean[:,:,:,0:512]
-    noise_images = noise_images[:1]
+    noise_images = noise_images[:2]
     noise_images = noise_images[:,:,:,0:512]
-    denoised = denoised[:1]
+    denoised = denoised[:2]
     denoised = denoised[:,:,:,0:512]
     fig = save_das_graph(clean, denoised, noise_images)
     # Speichere das Bild in TensorBoard
@@ -106,6 +114,8 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len
     else:
         #writer.add_image('Denoised Test', grid, global_step=1 * len_dataloader + batch_idx)
         writer.add_image('Denoised Test', image, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
+    if "-1" in store:
+        return
     if "test" not in mode:
         print(f"best model found with psnr: {psnr}")
         model_save_path = os.path.join(store, "models", f"{round(psnr, 1)}-{mode}-{epoch}-{batch_idx}.pth")
@@ -114,42 +124,6 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len
         else:
             f = open(model_save_path, "x")
             f.close()
-
-def n2self_pixel_grid_mask(shape, patch_size, phase_x, phase_y):
-    A = torch.zeros(shape[-2:])
-    for i in range(shape[-2]):
-        for j in range(shape[-1]):
-            if (i % patch_size == phase_x and j % patch_size == phase_y):
-                A[i, j] = 1
-    return torch.Tensor(A)
-def n2self_interpolate_mask(tensor, mask, mask_inv):
-    device = tensor.device
-    mask = mask.to(device)
-    kernel = np.array([[0.5, 1.0, 0.5], [1.0, 0.0, 1.0], (0.5, 1.0, 0.5)])
-    kernel = kernel[np.newaxis, np.newaxis, :, :]
-    kernel = torch.Tensor(kernel)
-    kernel = kernel / kernel.sum()
-    kernel = np.repeat(kernel, repeats=tensor.shape[1], axis=1).to(device)
-    filtered_tensor = torch.nn.functional.conv2d(tensor, kernel, stride=1, padding=1)
-    return filtered_tensor * mask + tensor * mask_inv #TODO:verschieben in mask
-def mask(noise_image, i, grid_size=3, mode='interpolate', include_mask_as_input=False): 
-    phasex = i % grid_size
-    phasey = (i // grid_size) % grid_size
-    mask = n2self_pixel_grid_mask(noise_image[0, 0].shape, grid_size, phasex, phasey)
-    mask = mask.to(noise_image.device)
-    mask_inv = 1 - mask
-    mask_inv = torch.ones(mask.shape).to(noise_image.device) - mask
-    if mode == 'interpolate':
-        masked = n2self_interpolate_mask(noise_image, mask, mask_inv)
-    elif mode == 'zero':
-        masked = noise_image * mask_inv
-    #else:
-        #raise NotImplementedError
-    if include_mask_as_input:
-        net_input = torch.cat((masked, mask.repeat(noise_image.shape[0], 1, 1, 1)), dim=1)
-    else:
-        net_input = masked
-    return net_input, mask
 
 def calculate_loss(noise_image, model, batch_idx):
     #masked_noise_image, mask = Mask.n2self_mask(noise_image, batch_idx)
@@ -169,8 +143,6 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         clean = clean.to(device).type(torch.float32)
         noise_images = noise_images.to(device).type(torch.float32)
         std = std.to(device).type(torch.float32)
-        if modi == 1:
-            noise_images = noise_images*std
         if mode == "train":
             model.train()
             loss, denoised = calculate_loss(noise_images, model, batch_idx)
@@ -186,17 +158,7 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
                 model.eval()
                 loss, denoised = calculate_loss(noise_images, model, batch_idx)
         #calculate psnr
-        if modi == 2:
-            denoised_psnr = denoised/denoised.std(dim=2, keepdim=True)
-            clean_psnr = clean/clean.std(dim=2, keepdim=True)
-            max_intensity=clean_psnr.max()-clean_psnr.min()
-            mse = torch.mean((clean_psnr-denoised_psnr)**2)
-            psnr = 10 * torch.log10((max_intensity ** 2) / mse)
-            sv = torch.mean((noise_images/std - denoised_psnr)**2, dim=-1) / torch.mean((noise_images/std)**2, dim=-1)
-            sv = torch.mean(sv)#, dim=-1)
         max_intensity=clean.max()-clean.min()
-        if modi == 3:
-            max_intensity=denoised.max()-denoised.min()
         mse = torch.mean((clean-denoised)**2)
         psnr = 10 * torch.log10((max_intensity ** 2) / mse)
         #calculatte scaled variance (https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277/1?file=26674421) In[13]
@@ -212,6 +174,7 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
             if psnr > bestPsnr:
                 bestPsnr = psnr
             saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path)
+    saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, "-1")
     return loss_log, psnr_log, scaledVariance_log, bestPsnr
 
 def main(arggv):
@@ -237,7 +200,7 @@ def main(arggv):
 
     store_path_root = log_files()
     global modi
-    for i in range(4):
+    for i in range(1):
 
         store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
