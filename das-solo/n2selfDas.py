@@ -15,10 +15,10 @@ from PIL import Image
 from import_files import log_files
 from import_files import U_Net
 from import_files import SyntheticNoiseDAS
-
+from scipy import signal
 
 epochs = 100 #2.000 epochen - 1 Epoche = 3424 samples
-batchsize = 32
+batchsize = 4
 dasChanelsTrain = 11
 dasChanelsVal = 11
 dasChanelsTest = 11
@@ -28,7 +28,7 @@ save_model = False
 
 snr_level = log_SNR=(-2,4)#default, ist weas anderes
 gauge_length = 19.2 #30 for synthhetic?
-snr = (-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
+snr = 2#(-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
 slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
 
 modi = 0 #testing diffrent setups
@@ -40,13 +40,16 @@ TODO:
 - gauge = 19,2
 - 50 Hz frequenz
 """
-def show_das(original):
+def show_das(original, norm=True):
     if isinstance(original, torch.Tensor):
         original = original.to('cpu').detach().numpy()
     original = original[0]
-    plt.figure(figsize=(7, 11))
+    plt.figure(figsize=(7, 5))
     for i in range(original.shape[1]):
-        #sr = original[0][i] / original[0][i].std()
+        if norm:
+            std = original[0][i].std()
+            if std == 0:
+                std = 0.000000001
         sr = original[0][i]
         plt.plot(sr + 3*i, c="k", lw=0.5, alpha=1)
         #if every chanle by it self
@@ -62,10 +65,10 @@ def save_das_graph(original, denoised, noise):
             data = data.to('cpu').detach().numpy()
         data = data[batch_idx]
         for i in range(data.shape[1]):
-            std = data[0][i].std()
-            if std == 0:
-                std = 0.000000001
-            sr = data[0][i] / std
+            #std = data[0][i].std()
+            #if std == 0:
+                #std = 0.000000001
+            sr = data[0][i]# / std
             #sr = data[0][i]
             ax.plot(sr + 3*i, c="k", lw=0.5, alpha=1)
         ax.set_title(title)
@@ -77,11 +80,11 @@ def save_das_graph(original, denoised, noise):
     # Erste Spalte - Batch 0
     plot_das(original, 'Original (Clean) 1', axs[0, 0], 0)
     plot_das(denoised, 'Reconstructed 1', axs[1, 0], 0)
-    plot_das(noise, 'Noise 1', axs[2, 0], 0)
+    plot_das(noise, 'Input (with noise) 1', axs[2, 0], 0)
     # Zweite Spalte - Batch 1
     plot_das(original, 'Original (Clean) 2', axs[0, 1], 1)
     plot_das(denoised, 'Reconstructed 2', axs[1, 1], 1)
-    plot_das(noise, 'Noise 2', axs[2, 1], 1)
+    plot_das(noise, 'Noise (with noise) 2', axs[2, 1], 1)
     plt.tight_layout()
     
     return fig
@@ -101,6 +104,7 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len
     # Speichere das Bild in TensorBoard
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
+    #plt.show()
     plt.close(fig)
     buf.seek(0)
     image = np.array(Image.open(buf))

@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import shutil
 from datetime import datetime
+from matplotlib import pyplot as plt
 import torch
 from torch import nn
 #from torch_pconv import PConv2d
@@ -197,11 +198,15 @@ class SyntheticNoiseDAS(Dataset):
         eq_das = generate_synthetic_das(eq_strain_rate, self.gauge, self.fs, slowness, nx=self.nx)
         j = np.random.randint(0, eq_strain_rate.shape[-1]-self.nt+1)
         eq_das = eq_das[:,j:j+self.nt]
-        #"""
+        
         if isinstance(self.log_SNR, tuple):
-            snr = 10 ** np.random.uniform(*self.log_SNR)  # log10-uniform distribution
+            snr_sample = np.random.uniform(*self.log_SNR)
+            snr = 10 ** snr_sample  # log10-uniform distribution
         else:
-            snr = 10 ** self.log_SNR
+            snr_sample = self.log_SNR
+            snr = 10 ** (self.log_SNR/10)
+
+        #"""
         amp = 2 * np.sqrt(snr) / torch.abs(eq_das + 1e-10).max() #rescale so, max amplitude = 2*wrt(snr)
         eq_das *= amp
 
@@ -209,15 +214,45 @@ class SyntheticNoiseDAS(Dataset):
         gutter = 100
         noise = np.random.randn(self.nx, self.nt + 2*gutter)
         noise = torch.from_numpy(bandpass(noise, 1.0, 10.0, self.fs, gutter).copy())
+        Es = torch.sum(eq_das**2)
+        En = torch.sum(noise**2)
+        alpha = torch.sqrt(Es/(snr*En))
+        #amp=0
+        #print(f"snr-sample: {snr_sample}, snr: {snr}, noise.std: {noise.std()}, alpha: {alpha}")
 
-        sample = eq_das + noise
+
+        sample = eq_das + noise * alpha
         scale = sample.std(dim=-1, keepdim=True)
         sample /= scale
+        #save_das_graph(eq_das.unsqueeze(0).unsqueeze(0), sample.unsqueeze(0).unsqueeze(0), scale.unsqueeze(0).unsqueeze(0))
         #           nois_image,         clean               noise         std der Daten (b,c,nx,1)  Ampllitude vom DAS (b)
         return sample.unsqueeze(0), eq_das.unsqueeze(0), noise.unsqueeze(0), scale.unsqueeze(0), amp
         #"""
         #return eq_das.unsqueeze(0)
-
+"""
+def save_das_graph(original, denoised, scale):
+    def plot_das(data, title, ax, batch_idx):
+        if isinstance(data, torch.Tensor):
+            data = data.to('cpu').detach().numpy()
+        data = data[batch_idx]
+        for i in range(data.shape[1]):
+            #std = data[0][i].std()
+            #if std == 0:
+                #std = 0.000000001
+            sr = data[0][i]# / std
+            #sr = data[0][i]
+            ax.plot(sr + 3*i, c="k", lw=0.5, alpha=1)
+        ax.set_title(title)
+        ax.set_axis_off()
+    # Erstelle eine Figur mit 3 Subplots
+    fig, axs = plt.subplots(3, 1, figsize=(7, 10))
+    # Erste Spalte - Batch 0
+    plot_das(original, 'Clean', axs[0], 0)
+    plot_das(denoised, 'sample', axs[1], 0)
+    plot_das(denoised*scale, 'sample*scale', axs[2], 0)
+    plt.tight_layout()
+    plt.show()
+"""
 def bandpass(x, low, high, fs, gutter, alpha=0.1):
     """
     alpha: taper length
@@ -254,5 +289,12 @@ def log_files():
         if file.endswith(".py"):
             print("copy: ", file)
             shutil.copyfile(os.path.join(current_path, file), os.path.join(store_path, file))
+    current_path2 = Path(os.path.join(current_path, "das-solo"))
+    store_path2 = Path(os.path.join(store_path, "das-solo"))
+    store_path2.mkdir(parents=True, exist_ok=True)
+    for file in os.listdir(current_path2):
+        if file.endswith(".py"):
+            print("copy: ", file)
+            shutil.copyfile(os.path.join(current_path2, file), os.path.join(store_path2, file))
     print(f"python files are stored. Path: {store_path}")
     return store_path
