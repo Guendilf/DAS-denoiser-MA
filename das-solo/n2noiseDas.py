@@ -207,7 +207,7 @@ def main(arggv):
 
     store_path_root = log_files()
     global modi
-    for i in range(2):
+    for i in range(5):
         
         store_path = Path(os.path.join(store_path_root, f"n2noise-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
@@ -215,18 +215,28 @@ def main(arggv):
         tmp.mkdir(parents=True, exist_ok=True)
         tmp = Path(os.path.join(store_path, "models"))
         tmp.mkdir(parents=True, exist_ok=True)
+        """
         if modi==1:
             dasChanels = 11
             timesamples = 2048
             dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=2568, mode="train")
             dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="val")
             dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="test")
+        """
         print("n2noise")
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
-
-        model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=batchnorm).to(device)
+        if modi==0:
+            model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=batchnorm).to(device)
+        elif modi==1:
+            model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=True).to(device)
+        elif modi==2:
+            model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=(1,2), conv_kernel=3, batchNorm=batchnorm).to(device)
+        elif modi==3:
+            model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=(1,2), conv_kernel=3, batchNorm=True).to(device)
+        else:
+            model = U_Net(1, first_out_chanel=24, scaling_kernel_size=(1,2), conv_kernel=5, batchNorm=batchnorm).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_lr)
 
