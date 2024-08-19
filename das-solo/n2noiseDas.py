@@ -14,32 +14,30 @@ from PIL import Image
 
 from import_files import log_files
 from import_files import U_Net
+from import_files import n2nU_net
 from import_files import SyntheticNoiseDAS
 from scipy import signal
 
-epochs = 100 #2.000 epochen - 1 Epoche = 3424 samples
-batchsize = 32
-dasChanelsTrain = 11
-dasChanelsVal = 11
-dasChanelsTest = 11
-lr = 0.0001
+epochs = 30 #2.000 epochen - 1 Epoche = 3424 samples
+batchsize = 24
+dasChanels = 96
+timesamples = 128 #oder 30 sekunden bei samplingrate von 100Hz -> ?
+lr = 0.01
+lr_end = 0.0001
+# Define the lambda function for the learning rate scheduler
+lambda_lr = lambda epoch: lr_end + (lr - lr_end) * (1 - epoch / epochs)
+
 batchnorm = False
 save_model = False
 
 snr_level = log_SNR=(-2,4)#default, ist weas anderes
 gauge_length = 19.2 #30 for synthhetic?
-snr = (-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
+snr = 2#(-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
 slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
 
 modi = 0 #testing diffrent setups
 
 
-"""
-TODO:
-- swuish activation funktion with ??? parameter     -> Sigmoid Linear Unit (SiLU) function
-- gauge = 19,2
-- 50 Hz frequenz
-"""
 def show_das(original, norm=True):
     if isinstance(original, torch.Tensor):
         original = original.to('cpu').detach().numpy()
@@ -129,47 +127,39 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len
             f = open(model_save_path, "x")
             f.close()
 
-def calculate_loss(noise_image, model, batch_idx):
-    #masked_noise_image, mask = Mask.n2self_mask(noise_image, batch_idx)
-    mask = torch.zeros_like(noise_image).to(noise_image.device)
-    for i in range(mask.shape[0]):
-        mask[i, :, np.random.randint(0, mask.shape[2]), :] = 1
-    masked_noise_image = (1-mask) * noise_image
-    denoised = model(masked_noise_image)
-    return torch.nn.MSELoss()(denoised*(mask), noise_image*(mask)), denoised
+def calculate_loss(noise_image, noise_image2, model):
+    denoised = model(noise_image)
+    loss = 1/noise_image.shape[0] * torch.sum((denoised-noise_image2)**2)
+    return loss, denoised
 
-def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path, bestPsnr):
+def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, store_path, bestPsnr):
     global modi
     loss_log = []
     psnr_log = []
     scaledVariance_log = []
     save_on_last_epoch=True
-    for batch_idx, (noise_images, clean, noise, std, amp, _, _, _) in enumerate(dataLoader):
+    for batch_idx, (noise_images, clean, noise, std, amp, noise_images2, noise2, std2) in enumerate(dataLoader):
         clean = clean.to(device).type(torch.float32)
         noise_images = noise_images.to(device).type(torch.float32)
+        noise_images2 = noise_images2.to(device).type(torch.float32)
         std = std.to(device).type(torch.float32)
+        std2 = std2.to(device).type(torch.float32)
         if mode == "train":
             model.train()
-            loss, denoised = calculate_loss(noise_images, model, batch_idx)
+            loss, denoised = calculate_loss(noise_images, noise_images2, model)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
             """
             if config.methodes[methode]['sheduler']:
                 scheduler.step()
             """
+            writer.add_scalar('Learning Rate N2N DAS', scheduler.get_last_lr()[0], global_step=epoch * len(dataLoader) + batch_idx)
         else:
             with torch.no_grad():
                 model.eval()
-                loss, denoised = calculate_loss(noise_images, model, batch_idx)
-            if modi == 1 or modi == 3:
-                buffer = torch.zeros_like(denoised).to(device)
-                for i in range(denoised[0][0].shape[0]):
-                    mask = torch.zeros_like(denoised).to(device)
-                    mask[:,:,i,:] = 1
-                    j_denoised = model(noise_images*(1-mask))
-                    buffer += j_denoised*mask
-                denoised = buffer
+                loss, denoised = calculate_loss(noise_images, noise_images2, model)
         #calculate psnr
         max_intensity=clean.max()-clean.min()
         mse = torch.mean((clean-denoised)**2)
@@ -187,12 +177,14 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
             if psnr > bestPsnr:
                 bestPsnr = psnr
             saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
-            save_on_last_epoch = False
+            save_on_last_epoch=False
     if save_on_last_epoch:
         saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, False)
     return loss_log, psnr_log, scaledVariance_log, bestPsnr
 
 def main(arggv):
+    global dasChanels
+    global timesamples
     print("Starte Programm!")
     if torch.cuda.device_count() == 1:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -209,40 +201,35 @@ def main(arggv):
     eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
     eq_strain_rates_test = np.load(strain_test_dir)
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=3424, mode="train")
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=640, mode="val")
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=640, mode="test")
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=2568, mode="train")
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="val")
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="test")
 
     store_path_root = log_files()
     global modi
-    for i in range(5):
-        if modi >=2: #fester snr wert
-            dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=2, gauge=gauge_length, size=3424, mode="train")
-            dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=2, gauge=gauge_length, size=640, mode="val")
-            dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=2, gauge=gauge_length, size=640, mode="test")
-
-        store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
+    for i in range(2):
+        
+        store_path = Path(os.path.join(store_path_root, f"n2noise-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
         tmp = Path(os.path.join(store_path, "tensorboard"))
         tmp.mkdir(parents=True, exist_ok=True)
         tmp = Path(os.path.join(store_path, "models"))
         tmp.mkdir(parents=True, exist_ok=True)
-
-        print("n2self")
+        if modi==1:
+            dasChanels = 11
+            timesamples = 2048
+            dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=2568, mode="train")
+            dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="val")
+            dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="test")
+        print("n2noise")
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
 
-        model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
-        if modi == 4:
-            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
-
+        model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=batchnorm).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        """
-        if method_params['sheduler']:
-            lr_lambda = get_lr_lambda(method_params['lr'], method_params['changeLR_steps'], method_params['changeLR_rate'])
-            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
-        """
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_lr)
+
         writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
 
         bestPsnrTrain=0
@@ -250,7 +237,7 @@ def main(arggv):
         bestPsnrTest=0
         for epoch in tqdm(range(epochs)):
 
-            loss, psnr, scaledVariance_log, bestPsnrTrain = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
+            loss, psnr, scaledVariance_log, bestPsnrTrain = train(model, device, dataLoader, optimizer, scheduler, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
             """
             for i, loss_item in enumerate(loss):
                 writer.add_scalar('Loss Train', loss_item, epoch * len(dataLoader) + i)
@@ -261,7 +248,7 @@ def main(arggv):
             writer.add_scalar('PSNR Train', statistics.mean(psnr), epoch)
             writer.add_scalar('Scaled Variance Train', statistics.mean(scaledVariance_log), epoch)
 
-            loss_val, psnr_val, scaledVariance_log_val, bestPsnrVal = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrVal) 
+            loss_val, psnr_val, scaledVariance_log_val, bestPsnrVal = train(model, device, dataLoader_validate, optimizer, scheduler, mode="val", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrVal) 
             """
             for i, loss_item in enumerate(loss_val):
                 writer.add_scalar('Loss Val', loss_item, epoch * len(dataLoader) + i)
@@ -280,7 +267,7 @@ def main(arggv):
                     f = open(model_save_path, "x")
                     f.close()
 
-        loss_test, psnr_test, scaledVariance_log_test, bestPsnrTest = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, store_path=store_path, bestPsnr=bestPsnrTest)
+        loss_test, psnr_test, scaledVariance_log_test, bestPsnrTest = train(model, device, dataLoader_test, optimizer, scheduler, mode="test", writer=writer, epoch=0, store_path=store_path, bestPsnr=bestPsnrTest)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)
         writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 0)
         writer.add_scalar('Scaled Variance Test', statistics.mean(scaledVariance_log_test), 0)
