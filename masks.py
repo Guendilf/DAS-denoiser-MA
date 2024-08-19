@@ -57,6 +57,8 @@ class Mask:
                 maskamount = 1
         mask_area = mask_size[0] * mask_size[1]
         num_regions = int(np.round((mask_percentage * total_area) / mask_area))
+        if num_regions == 0:
+            num_regions = 1
         masks = []
         #fast methode for pixel only "select_random_pixel" or even with nn.functional.dropout
         #saturated sampling ensured through "torch.randperm" in select_random_pixels

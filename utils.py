@@ -6,7 +6,7 @@ import os
 import shutil
 
 import torch
-import config
+#import config
 from loss import n2info
 
 
