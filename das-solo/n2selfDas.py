@@ -92,7 +92,7 @@ def save_das_imshow(images, titles):
     fig, axs = plt.subplots(1, 4, figsize=(20, 5))
     for i, (image, title) in enumerate(zip(images, titles)):
         image = image.to('cpu').detach().numpy()
-        axs[i].imshow(image, aspect='auto', cmap='viridis')
+        axs[i].imshow(image, aspect='auto', cmap='viridis', vmin=-1, vmax=1)
         axs[i].set_title(title)
         axs[i].axis('off')
     
@@ -110,10 +110,10 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
     #imshow
     noise_images_mask = noise_images * mask
     denoised_mask = denoised * mask
-    images = [clean[0, 0, :, :], noise_images_mask[0, 0, :, :], denoised_mask[0, 0, :, :], denoised[0, 0, :, :]]
-    titles = ['Clean', 'Input * Mask', 'Denoised * Mask', 'Denoised']
+    images = [clean[0, 0, :, :], denoised[0, 0, :, :], noise_images_mask[0, 0, :, :], denoised_mask[0, 0, :, :]]
+    titles = ['Clean', 'Denoised', 'Input * Mask', 'Denoised * Mask']
     image_imshow, imshow_fig = save_das_imshow(images, titles)
-    plt.show()
+    #plt.show()
     plt.close(imshow_fig)
 
     #graphen
@@ -127,7 +127,7 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
     # Speichere das Bild in TensorBoard
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
-    plt.show()
+    #plt.show()
     plt.close(fig)
     buf.seek(0)
     image_graph = np.array(Image.open(buf))
@@ -193,14 +193,15 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
             with torch.no_grad():
                 model.eval()
                 loss, denoised, mask_orig = calculate_loss(noise_images, model, batch_idx)
-                if modi == 1 or modi == 3:
-                    buffer = torch.zeros_like(denoised).to(device)
-                    for i in range(denoised[0][0].shape[0]):
-                        mask = torch.zeros_like(denoised).to(device)
-                        mask[:,:,i,:] = 1
-                        j_denoised = model(noise_images*(1-mask))
-                        buffer += j_denoised*mask
-                    denoised = buffer
+                buffer = torch.zeros_like(denoised).to(device)
+                for i in range(denoised.shape[2]):
+                    mask = torch.zeros(clean.shape[0],clean.shape[1],clean.shape[2],clean.shape[-1]).to(device)
+                    #11 because i use 11 DAS Chanels during training
+                    mask[:,:,i%11,:] = 1
+                    input_image = noise_images[:,:,int(i/11):int(i/11)+11,:] * (1-mask)
+                    j_denoised = model(input_image)
+                    buffer += j_denoised*mask
+                denoised = buffer
         #calculate psnr
         max_intensity=clean.max()-clean.min()
         mse = torch.mean((clean-denoised)**2)
@@ -247,7 +248,7 @@ def main(arggv):
 
     store_path_root = log_files()
     global modi
-    for i in range(4):
+    for i in range(2):
 
         store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
@@ -260,9 +261,9 @@ def main(arggv):
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
-
-        model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
-        if modi >= 2:
+        if modi == 0:
+            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
+        else:
             model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -312,6 +313,8 @@ def main(arggv):
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)
         writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 0)
         writer.add_scalar('Scaled Variance Test', statistics.mean(scaledVariance_log_test), 0)
+        model_save_path = os.path.join(store_path, "models", "last-model.pth")
+        torch.save(model.state_dict(), model_save_path)
         modi += 1
 
 if __name__ == '__main__':

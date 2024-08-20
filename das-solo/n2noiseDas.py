@@ -31,7 +31,7 @@ batchnorm = False
 save_model = False
 
 snr_level = log_SNR=(-2,4)#default, ist weas anderes
-gauge_length = 19.2 #30 for synthhetic?
+gauge_length = 1 #30 for synthhetic?
 snr = 2#(-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
 slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
 
@@ -177,7 +177,8 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
             if psnr > bestPsnr:
                 bestPsnr = psnr
             saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
-            save_on_last_epoch=False
+            if batch_idx >= len(dataLoader)-5:
+                save_on_last_epoch = False
     if save_on_last_epoch:
         saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, False)
     return loss_log, psnr_log, scaledVariance_log, bestPsnr
@@ -201,9 +202,9 @@ def main(arggv):
     eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
     eq_strain_rates_test = np.load(strain_test_dir)
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=2568, mode="train")
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="val")
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="test")
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=1000.0, size=2568, mode="train")
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=1000.0, size=480, mode="val")
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=1000.0, size=480, mode="test")
 
     store_path_root = log_files()
     global modi
