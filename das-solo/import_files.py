@@ -83,7 +83,7 @@ class U_Net(nn.Module):
         self.n2self_architecture = n2self_architecture
         self.skipLast = skipLast
         self.scaling_kernel_size = scaling_kernel_size
-        self.encoder1 = doubleConv(in_chanel, first_out_chanel, conv_kernel=3, norm=batchNorm, n2self_architecture=n2self_architecture)
+        self.encoder1 = doubleConv(in_chanel, first_out_chanel, conv_kernel=conv_kernel, norm=batchNorm, n2self_architecture=n2self_architecture)#todo: warum 3
         """ old version
         self.encoder2 = nn.Sequential(
             #nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size),
@@ -296,19 +296,14 @@ class SyntheticNoiseDAS(Dataset):
         gutter = 100
         noise = np.random.randn(self.nx, self.nt + 2*gutter)
         noise = torch.from_numpy(bandpass(noise, 1.0, 10.0, self.fs, gutter).copy())
-        Es = torch.sum(eq_das**2)
-        En = torch.sum(noise**2)
-        alpha = torch.sqrt(Es/(snr*En))
+        
         noise2 = np.random.randn(self.nx, self.nt + 2*gutter)
         noise2 = torch.from_numpy(bandpass(noise2, 1.0, 10.0, self.fs, gutter).copy())
-        En = torch.sum(noise2**2)
-        alpha2 = torch.sqrt(Es/(snr*En))
-        #amp=0
+
         #print(f"snr-sample: {snr_sample}, snr: {snr}, noise.std: {noise.std()}, alpha: {alpha}")
 
-
-        sample = eq_das + noise * alpha
-        sample2 = eq_das + noise2 * alpha2
+        sample = eq_das + noise
+        sample2 = eq_das + noise2
         scale2 = sample2.std(dim=-1, keepdim=True)
         scale = sample.std(dim=-1, keepdim=True)
         sample /= scale
