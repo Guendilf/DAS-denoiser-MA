@@ -32,7 +32,7 @@ save_model = False
 
 snr_level = log_SNR=(-2,4)#default, ist weas anderes
 gauge_length = 1 #30 for synthhetic?
-snr = 2#(-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
+snr = (-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
 slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
 
 modi = 0 #testing diffrent setups
@@ -208,7 +208,7 @@ def main(arggv):
 
     store_path_root = log_files()
     global modi
-    for i in range(5):
+    for i in range(2):
         
         store_path = Path(os.path.join(store_path_root, f"n2noise-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
@@ -231,12 +231,6 @@ def main(arggv):
         if modi==0:
             model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=batchnorm).to(device)
         elif modi==1:
-            model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=True).to(device)
-        elif modi==2:
-            model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=(1,2), conv_kernel=3, batchNorm=batchnorm).to(device)
-        elif modi==3:
-            model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=(1,2), conv_kernel=3, batchNorm=True).to(device)
-        else:
             model = U_Net(1, first_out_chanel=24, scaling_kernel_size=(1,2), conv_kernel=5, batchNorm=batchnorm).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_lr)
