@@ -22,8 +22,8 @@ epochs = 30 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 24
 dasChanels = 96
 timesamples = 128 #oder 30 sekunden bei samplingrate von 100Hz -> ?
-lr = 0.01
-lr_end = 0.0001
+lr = 0.001
+lr_end = 0.00001
 # Define the lambda function for the learning rate scheduler
 lambda_lr = lambda epoch: lr_end + (lr - lr_end) * (1 - epoch / epochs)
 
@@ -128,7 +128,7 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
     # Speichere das Bild in TensorBoard
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
-    plt.show()
+    #plt.show()
     plt.close(fig)
     buf.seek(0)
     image_graph = np.array(Image.open(buf))
@@ -194,7 +194,7 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            scheduler.step()
+            #scheduler.step()
             """
             if config.methodes[methode]['sheduler']:
                 scheduler.step()
@@ -229,6 +229,7 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
             if batch_idx >= len(dataLoader)-5:
                 save_on_last_epoch = False
     if save_on_last_epoch:
+        pass
         saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, False)
     return loss_log, psnr_log, scaledVariance_log, bestPsnr
 
@@ -292,6 +293,7 @@ def main(arggv):
         for epoch in tqdm(range(epochs)):
 
             loss, psnr, scaledVariance_log, bestPsnrTrain = train(model, device, dataLoader, optimizer, scheduler, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
+            scheduler.step()
             """
             for i, loss_item in enumerate(loss):
                 writer.add_scalar('Loss Train', loss_item, epoch * len(dataLoader) + i)
