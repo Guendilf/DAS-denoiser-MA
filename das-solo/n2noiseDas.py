@@ -145,13 +145,21 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         noise_images2 = noise_images2.to(device).type(torch.float32)
         std = std.to(device).type(torch.float32)
         std2 = std2.to(device).type(torch.float32)
-        clean /= std
+        #clean /= std
+        noise3 = torch.randn_like(clean).to(device) * 0.5
+        noise_images = clean + noise3
+        noise_images = (noise_images-noise_images.mean())/noise_images.std()
+        noise4 = torch.randn_like(clean).to(device) * 0.5
+        noise_images2 = clean + noise4
+        noise_images2 = (noise_images2-noise_images2.mean())/noise_images2.std()
         if mode == "train":
             model.train()
             if modi == 0 or modi == 1:
                 loss, denoised = calculate_loss(noise_images, noise_images2, model)
+                denoised = denoised * noise_images.std() + noise_images.mean()
             else:
                 loss, denoised = calculate_loss(noise_images, clean, model)
+                denoised = denoised * noise_images.std() + noise_images.mean()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
