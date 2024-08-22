@@ -129,8 +129,9 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len
 
 def calculate_loss(noise_image, noise_image2, model):
     denoised = model(noise_image)
-    loss = 1/noise_image.shape[0] * torch.sum((denoised-noise_image2)**2)
-    return loss, denoised
+    #loss = 1/noise_image.shape[0] * torch.sum((denoised-noise_image2)**2)
+    loss_function = torch.nn.MSELoss()
+    return loss_function(denoised, noise_image2), denoised
 
 def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, store_path, bestPsnr):
     global modi
@@ -144,9 +145,13 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         noise_images2 = noise_images2.to(device).type(torch.float32)
         std = std.to(device).type(torch.float32)
         std2 = std2.to(device).type(torch.float32)
+        clean /= std
         if mode == "train":
             model.train()
-            loss, denoised = calculate_loss(noise_images, noise_images2, model)
+            if modi == 0 or modi == 1:
+                loss, denoised = calculate_loss(noise_images, noise_images2, model)
+            else:
+                loss, denoised = calculate_loss(noise_images, clean, model)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -159,7 +164,10 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         else:
             with torch.no_grad():
                 model.eval()
-                loss, denoised = calculate_loss(noise_images, noise_images2, model)
+                if modi == 0 or modi == 1:
+                    loss, denoised = calculate_loss(noise_images, noise_images2, model)
+                else:
+                    loss, denoised = calculate_loss(noise_images, clean, model)
         #calculate psnr
         max_intensity=clean.max()-clean.min()
         mse = torch.mean((clean-denoised)**2)
@@ -208,7 +216,7 @@ def main(arggv):
 
     store_path_root = log_files()
     global modi
-    for i in range(2):
+    for i in range(4):
         
         store_path = Path(os.path.join(store_path_root, f"n2noise-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
@@ -228,9 +236,9 @@ def main(arggv):
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
-        if modi==0:
+        if modi == 0 or modi == 2:
             model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=batchnorm).to(device)
-        elif modi==1:
+        elif modi == 1 or modi == 3:
             model = U_Net(1, first_out_chanel=24, scaling_kernel_size=(1,2), conv_kernel=5, batchNorm=batchnorm).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_lr)

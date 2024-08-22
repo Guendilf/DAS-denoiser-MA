@@ -149,7 +149,10 @@ class down(nn.Module):
         super(down, self).__init__()
         self.n2self_architecture = n2self_architecture
         self.maxpool = nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size)
-        self.blur = BlurPool(in_chanel=in_chanel, kernel_size=scaling_kernel_size)  # Replace MaxPool2d with BlurPool
+        if self.n2self_architecture:
+            self.blur = BlurPool(in_chanel=in_chanel, kernel_size=scaling_kernel_size)  # Replace MaxPool2d with BlurPool
+        else:
+            self.maxpool = nn.MaxPool2d(kernel_size=scaling_kernel_size, stride=scaling_kernel_size)
         self.conv = doubleConv(in_chanel, in_chanel*2, conv_kernel_size, norm, n2self_architecture)
 
     def forward(self, x):
