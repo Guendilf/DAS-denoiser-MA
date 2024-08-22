@@ -30,7 +30,6 @@ lambda_lr = lambda epoch: lr_end + (lr - lr_end) * (1 - epoch / epochs)
 batchnorm = False
 save_model = False
 
-snr_level = log_SNR=(-2,4)#default, ist weas anderes
 gauge_length = 1 #30 for synthhetic?
 snr = (-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
 slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
@@ -38,84 +37,116 @@ slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 
 modi = 0 #testing diffrent setups
 
 
-def show_das(original, norm=True):
-    if isinstance(original, torch.Tensor):
-        original = original.to('cpu').detach().numpy()
-    original = original[0]
-    plt.figure(figsize=(7, 5))
-    for i in range(original.shape[1]):
-        if norm:
-            std = original[0][i].std()
-            if std == 0:
-                std = 0.000000001
-        sr = original[0][i]
-        plt.plot(sr + 3*i, c="k", lw=0.5, alpha=1)
-        #if every chanle by it self
-        #plt.subplot(original.shape[1], 1, i + 1)
-        #plt.plot(original[0, i].numpy(), c="k", lw=0.5, alpha=1)
-        #plt.title(f'Channel {i + 1}')
-        plt.tight_layout()
-    plt.show()
+def save_das_graph(clean, noise_image, denoised):
+    if isinstance(clean, torch.Tensor):
+        clean = clean.to('cpu').detach().numpy()
+    if isinstance(noise_image, torch.Tensor):
+        noise_image = noise_image.to('cpu').detach().numpy()
+    if isinstance(denoised, torch.Tensor):
+        denoised = denoised.to('cpu').detach().numpy()
+    # Create a figure with 2 rows and 4 columns
+    fig, axes = plt.subplots(clean.shape[0], 4, figsize=(20, 10))
 
-def save_das_graph(original, denoised, noise):
-    def plot_das(data, title, ax, batch_idx):
-        if isinstance(data, torch.Tensor):
-            data = data.to('cpu').detach().numpy()
-        data = data[batch_idx]
-        for i in range(data.shape[1]):
-            #std = data[0][i].std()
-            #if std == 0:
-                #std = 0.000000001
-            sr = data[0][i]# / std
-            #sr = data[0][i]
-            ax.plot(sr + 3*i, c="k", lw=0.5, alpha=1)
-        ax.set_title(title)
-        ax.set_axis_off()
-    
-    # Erstelle eine Figur mit 3 Subplots
-    fig, axs = plt.subplots(3, 2, figsize=(14, 15))
+    # Plot the waves
+    for i in range(clean.shape[0]):
+        y_min = clean[i].min()
+        y_max = clean[i].max()
+        y_abs = max(abs(y_min), abs(y_max))
+        # Clean wave
+        axes[i, 0].plot(clean[i, 0, 0, :], label='Clean')
+        axes[i, 0].set_title(f'Clean Wave {i+1}')
+        axes[i, 0].set_ylim(-y_abs, y_abs)
+        
+        # Denoised wave
+        axes[i, 1].plot(denoised[i, 0, 0, :], label='Reconstructed')
+        axes[i, 1].set_title(f'Reconstructed Wave {i+1}')
+        axes[i, 1].set_ylim(-y_abs, y_abs)
+        
+        # Noise wave
+        axes[i, 2].plot(noise_image[i, 0, 0, :], label='Input')
+        axes[i, 2].set_title(f'Input Wave {i+1}')
+        axes[i, 2].set_ylim(-y_abs, y_abs)
+        
+        # Overlapping clean and denoised waves
+        axes[i, 3].plot(clean[i, 0, 0, :], label='Clean', color='black')
+        axes[i, 3].plot(denoised[i, 0, 0, :], label='Reconstructed', color='red')
+        axes[i, 3].set_ylim(-y_abs, y_abs)
+        axes[i, 3].set_title(f'Clean and Denoised comparison {i+1}')
+        axes[i, 3].legend()
 
-    # Erste Spalte - Batch 0
-    plot_das(original, 'Original (Clean) 1', axs[0, 0], 0)
-    plot_das(denoised, 'Reconstructed 1', axs[1, 0], 0)
-    plot_das(noise, 'Input (with noise) 1', axs[2, 0], 0)
-    # Zweite Spalte - Batch 1
-    plot_das(original, 'Original (Clean) 2', axs[0, 1], 1)
-    plot_das(denoised, 'Reconstructed 2', axs[1, 1], 1)
-    plot_das(noise, 'Noise (with noise) 2', axs[2, 1], 1)
+    # Ensure the scales in the subplots are the same
+    for ax in axes.flat:
+        ax.label_outer()
     plt.tight_layout()
-    
     return fig
-    
-def saveAndPicture(psnr, clean, noise_images, denoised, mode, writer, epoch, len_dataloader, batch_idx, model, store, best):
-    #comparison = torch.cat((clean[:1], denoised[:1], noise_images[:1]), dim=0)
-    #comparison = comparison[:,:,:,:512]
-    #grid = make_grid(comparison, nrow=1, normalize=False).cpu()
 
+def save_das_imshow(images, titles):
+    fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+    for i, (image, title) in enumerate(zip(images, titles)):
+        image = image.to('cpu').detach().numpy()
+        axs[i].imshow(image, aspect='auto', cmap='viridis', vmin=-1, vmax=1)
+        axs[i].set_title(title)
+        axs[i].axis('off')
+    
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    
+    # Bild als Tensor in TensorBoard speichern
+    image_tensor = torch.Tensor(np.array(plt.imread(buf)))
+    image_tensor = image_tensor.permute(2, 0, 1)  # Channels First (C, H, W)
+    return image_tensor, fig
+    
+def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoch, len_dataloader, batch_idx, model, store, best):
+    #imshow
+    noise_images_mask = noise_images * mask
+    denoised_mask = denoised * mask
+    images = [clean[0, 0, :, :], denoised[0, 0, :, :], noise_images_mask[0, 0, :, :], denoised_mask[0, 0, :, :]]
+    titles = ['Clean', 'Denoised', 'Input * Mask', 'Denoised * Mask']
+    image_imshow, imshow_fig = save_das_imshow(images, titles)
+    #plt.show()
+    plt.close(imshow_fig)
+
+    #graphen
     clean = clean[:2]
     clean = clean[:,:,:,0:512]
     noise_images = noise_images[:2]
     noise_images = noise_images[:,:,:,0:512]
     denoised = denoised[:2]
     denoised = denoised[:,:,:,0:512]
-    fig = save_das_graph(clean, denoised, noise_images)
+    chanels = []
+    for i in range(clean.shape[0]):
+        for j in range(clean.shape[2]):
+            if mask[i,0,j,0] == 1:
+                chanels.append(j)
+                break
+    clean = clean[:,:,chanels,:]
+    noise_images = noise_images[:,:,chanels,:]
+    denoised = denoised[:,:,chanels,:]
+    fig = save_das_graph(clean, noise_images, denoised)
     # Speichere das Bild in TensorBoard
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
-    #plt.show()
+    plt.show()
     plt.close(fig)
     buf.seek(0)
-    image = np.array(Image.open(buf))
+    image_graph = np.array(Image.open(buf))
 
     if mode == "train":
         #writer.add_image('Denoised Training', grid, global_step=epoch * len_dataloader + batch_idx)
-        writer.add_image('Denoised Training', image, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
+        writer.add_image('Graph Denoised Training', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
+        writer.add_image('Imshow Denoised Training', image_imshow, global_step=epoch * len_dataloader + batch_idx)
     elif mode == "validate":
         #writer.add_image('Denoised Validation', grid, global_step=epoch * len_dataloader + batch_idx)
-        writer.add_image('Denoised Validation', image, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
+        writer.add_image('Graph Denoised Validation', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
+        writer.add_image('Imshow Denoised Validation', image_imshow, global_step=epoch * len_dataloader + batch_idx)
     else:
         #writer.add_image('Denoised Test', grid, global_step=1 * len_dataloader + batch_idx)
-        writer.add_image('Denoised Test', image, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
+        writer.add_image('Graph Denoised Test', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
+        writer.add_image('Imshow Denoised Test', image_imshow, global_step=epoch * len_dataloader + batch_idx)
+    #TODO:
+    #imshow(denoised) und co aspecratio, vmin, vmax
     if not best:
         return
     if "test" not in mode:
@@ -176,6 +207,8 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
                     loss, denoised = calculate_loss(noise_images, noise_images2, model)
                 else:
                     loss, denoised = calculate_loss(noise_images, clean, model)
+        mask_orig = torch.zeros_like(clean).to(device)
+        mask_orig[:,:,0,:] = 1
         #calculate psnr
         max_intensity=clean.max()-clean.min()
         mse = torch.mean((clean-denoised)**2)
@@ -192,11 +225,11 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         if psnr > bestPsnr + 0.5:
             if psnr > bestPsnr:
                 bestPsnr = psnr
-            saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
+            saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
             if batch_idx >= len(dataLoader)-5:
                 save_on_last_epoch = False
     if save_on_last_epoch:
-        saveAndPicture(psnr.item(), clean, noise_images, denoised, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, False)
+        saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, False)
     return loss_log, psnr_log, scaledVariance_log, bestPsnr
 
 def main(arggv):

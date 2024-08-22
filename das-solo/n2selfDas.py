@@ -57,7 +57,7 @@ def show_das(original, norm=True):
         #plt.title(f'Channel {i + 1}')
         plt.tight_layout()
     plt.show()
-
+"""
 def save_das_graph(original, noise, denoised):
     def plot_das(data, title, ax, batch_idx):
         if isinstance(data, torch.Tensor):
@@ -86,6 +86,49 @@ def save_das_graph(original, noise, denoised):
     plot_das(noise, 'Input (with noise) 2', axs[2, 1], 1)
     plt.tight_layout()
     
+    return fig
+"""
+def save_das_graph(clean, noise_image, denoised):
+    if isinstance(clean, torch.Tensor):
+        clean = clean.to('cpu').detach().numpy()
+    if isinstance(noise_image, torch.Tensor):
+        noise_image = noise_image.to('cpu').detach().numpy()
+    if isinstance(denoised, torch.Tensor):
+        denoised = denoised.to('cpu').detach().numpy()
+    # Create a figure with 2 rows and 4 columns
+    fig, axes = plt.subplots(clean.shape[0], 4, figsize=(20, 10))
+
+    # Plot the waves
+    for i in range(clean.shape[0]):
+        y_min = clean[i].min()
+        y_max = clean[i].max()
+        y_abs = max(abs(y_min), abs(y_max))
+        # Clean wave
+        axes[i, 0].plot(clean[i, 0, 0, :], label='Clean')
+        axes[i, 0].set_title(f'Clean Wave {i+1}')
+        axes[i, 0].set_ylim(-y_abs, y_abs)
+        
+        # Denoised wave
+        axes[i, 1].plot(denoised[i, 0, 0, :], label='Reconstructed')
+        axes[i, 1].set_title(f'Reconstructed Wave {i+1}')
+        axes[i, 1].set_ylim(-y_abs, y_abs)
+        
+        # Noise wave
+        axes[i, 2].plot(noise_image[i, 0, 0, :], label='Input')
+        axes[i, 2].set_title(f'Input Wave {i+1}')
+        axes[i, 2].set_ylim(-y_abs, y_abs)
+        
+        # Overlapping clean and denoised waves
+        axes[i, 3].plot(clean[i, 0, 0, :], label='Clean', color='black')
+        axes[i, 3].plot(denoised[i, 0, 0, :], label='Reconstructed', color='red')
+        axes[i, 3].set_ylim(-y_abs, y_abs)
+        axes[i, 3].set_title(f'Clean and Denoised comparison {i+1}')
+        axes[i, 3].legend()
+
+    # Ensure the scales in the subplots are the same
+    for ax in axes.flat:
+        ax.label_outer()
+    plt.tight_layout()
     return fig
 
 def save_das_imshow(images, titles):
@@ -123,6 +166,15 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
     noise_images = noise_images[:,:,:,0:512]
     denoised = denoised[:2]
     denoised = denoised[:,:,:,0:512]
+    chanels = []
+    for i in range(clean.shape[0]):
+        for j in range(clean.shape[2]):
+            if mask[i,0,j,0] == 1:
+                chanels.append(j)
+                break
+    clean = clean[:,:,chanels,:]
+    noise_images = noise_images[:,:,chanels,:]
+    denoised = denoised[:,:,chanels,:]
     fig = save_das_graph(clean, noise_images, denoised)
     # Speichere das Bild in TensorBoard
     buf = io.BytesIO()
