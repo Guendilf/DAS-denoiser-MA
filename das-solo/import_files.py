@@ -303,7 +303,7 @@ class SyntheticNoiseDAS(Dataset):
         noise2 = np.random.randn(self.nx, self.nt + 2*gutter)
         noise2 = torch.from_numpy(bandpass(noise2, 1.0, 10.0, self.fs, gutter).copy())
 
-        #print(f"snr-sample: {snr_sample}, snr: {snr}, noise.std: {noise.std()}, alpha: {alpha}")
+        #print(f"snr-sample: {snr_sample}, snr: {snr}, noise.std: {noise.std()}")
 
         sample = eq_das + noise
         sample2 = eq_das + noise2

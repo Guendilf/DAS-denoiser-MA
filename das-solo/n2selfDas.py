@@ -135,7 +135,7 @@ def save_das_imshow(images, titles):
     fig, axs = plt.subplots(1, 4, figsize=(20, 5))
     for i, (image, title) in enumerate(zip(images, titles)):
         image = image.to('cpu').detach().numpy()
-        axs[i].imshow(image, aspect='auto', cmap='viridis', vmin=-1, vmax=1)
+        axs[i].imshow(image, origin='lower', aspect='auto', cmap='seismic', vmin=-1, vmax=1) #cmap='viridis'
         axs[i].set_title(title)
         axs[i].axis('off')
     

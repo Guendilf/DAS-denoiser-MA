@@ -81,10 +81,10 @@ def save_das_graph(clean, noise_image, denoised):
     return fig
 
 def save_das_imshow(images, titles):
-    fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+    fig, axs = plt.subplots(1, 5, figsize=(25, 5))
     for i, (image, title) in enumerate(zip(images, titles)):
         image = image.to('cpu').detach().numpy()
-        axs[i].imshow(image, aspect='auto', cmap='viridis', vmin=-1, vmax=1)
+        axs[i].imshow(image, origin='lower', aspect='auto', cmap='seismic', vmin=-1, vmax=1) #cmap='viridis'
         axs[i].set_title(title)
         axs[i].axis('off')
     
@@ -102,8 +102,8 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
     #imshow
     noise_images_mask = noise_images * mask
     denoised_mask = denoised * mask
-    images = [clean[0, 0, :, :], denoised[0, 0, :, :], noise_images_mask[0, 0, :, :], denoised_mask[0, 0, :, :]]
-    titles = ['Clean', 'Denoised', 'Input * Mask', 'Denoised * Mask']
+    images = [clean[0, 0, :, :], denoised[0, 0, :, :], noise_images[0, 0, :, :], noise_images_mask[0, 0, :, :], denoised_mask[0, 0, :, :]]
+    titles = ['Clean', 'Denoised', 'Input', 'Input * Mask', 'Denoised * Mask']
     image_imshow, imshow_fig = save_das_imshow(images, titles)
     #plt.show()
     plt.close(imshow_fig)
@@ -176,22 +176,19 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         noise_images2 = noise_images2.to(device).type(torch.float32)
         std = std.to(device).type(torch.float32)
         std2 = std2.to(device).type(torch.float32)
-        #clean /= std
-        noise3 = torch.randn_like(clean).to(device) * 0.5
-        noise_images = clean + noise3
-        noise_images = (noise_images-noise_images.mean())/noise_images.std()
-        noise4 = torch.randn_like(clean).to(device) * 0.5
-        noise_images2 = clean + noise4
-        noise_images2 = (noise_images2-noise_images2.mean())/noise_images2.std()
-        clean = (clean-noise_images.mean())/noise_images.std()
+        
+        # make sample 0 mean and scale with std
+        noise_images = noise_images*std
+        noise_images2 = noise_images2*std2
+        noise_images = (noise_images - noise_images.mean()) / noise_images.std()
+        noise_images2 = (noise_images2 - noise_images2.mean()) / noise_images2.std()
+
         if mode == "train":
             model.train()
             if modi == 0 or modi == 1:
                 loss, denoised = calculate_loss(noise_images, noise_images2, model)
-                #denoised = denoised * noise_images.std() + noise_images.mean()
             else:
                 loss, denoised = calculate_loss(noise_images, clean, model)
-                #denoised = denoised * noise_images.std() + noise_images.mean()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -208,8 +205,11 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
                     loss, denoised = calculate_loss(noise_images, noise_images2, model)
                 else:
                     loss, denoised = calculate_loss(noise_images, clean, model)
+
+        denoised = denoised * noise_images.std() + noise_images.mean()
+
         mask_orig = torch.zeros_like(clean).to(device)
-        mask_orig[:,:,0,:] = 1
+        mask_orig[:,:,2,:] = 1
         #calculate psnr
         max_intensity=clean.max()-clean.min()
         mse = torch.mean((clean-denoised)**2)
