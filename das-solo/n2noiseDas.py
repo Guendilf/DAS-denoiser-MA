@@ -80,11 +80,11 @@ def save_das_graph(clean, noise_image, denoised):
     plt.tight_layout()
     return fig
 
-def save_das_imshow(images, titles):
+def save_das_imshow(images, titles, cmap):
     fig, axs = plt.subplots(1, 5, figsize=(25, 5))
     for i, (image, title) in enumerate(zip(images, titles)):
         image = image.to('cpu').detach().numpy()
-        axs[i].imshow(image, origin='lower', aspect='auto', cmap='seismic', vmin=-1, vmax=1) #cmap='viridis'
+        axs[i].imshow(image, origin='lower', aspect='auto', cmap=cmap, vmin=-1, vmax=1) #cmap='viridis'
         axs[i].set_title(title)
         axs[i].axis('off')
     
@@ -104,9 +104,11 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
     denoised_mask = denoised * mask
     images = [clean[0, 0, :, :], denoised[0, 0, :, :], noise_images[0, 0, :, :], noise_images_mask[0, 0, :, :], denoised_mask[0, 0, :, :]]
     titles = ['Clean', 'Denoised', 'Input', 'Input * Mask', 'Denoised * Mask']
-    image_imshow, imshow_fig = save_das_imshow(images, titles)
+    image_imshow, imshow_fig = save_das_imshow(images, titles, 'seismic')
+    image_imshow2, imshow_fig2 = save_das_imshow(images, titles, 'viridis')
     #plt.show()
     plt.close(imshow_fig)
+    plt.close(imshow_fig2)
 
     #graphen
     clean = clean[:2]
@@ -137,14 +139,17 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
         #writer.add_image('Denoised Training', grid, global_step=epoch * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Training', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Training', image_imshow, global_step=epoch * len_dataloader + batch_idx)
+        writer.add_image('Imshow Denoised Training 2', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     elif mode == "val":
         #writer.add_image('Denoised Validation', grid, global_step=epoch * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Validation', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Validation', image_imshow, global_step=epoch * len_dataloader + batch_idx)
+        writer.add_image('Imshow Denoised Validation 2', 2, global_step=epoch * len_dataloader + batch_idx)
     else:
         #writer.add_image('Denoised Test', grid, global_step=1 * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Test', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Test', image_imshow, global_step=epoch * len_dataloader + batch_idx)
+        writer.add_image('Imshow Denoised Test 2', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     #TODO:
     #imshow(denoised) und co aspecratio, vmin, vmax
     if not best:
@@ -185,10 +190,7 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
 
         if mode == "train":
             model.train()
-            if modi == 0 or modi == 1:
-                loss, denoised = calculate_loss(noise_images, noise_images2, model)
-            else:
-                loss, denoised = calculate_loss(noise_images, clean, model)
+            loss, denoised = calculate_loss(noise_images, noise_images2, model)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -201,12 +203,11 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         else:
             with torch.no_grad():
                 model.eval()
-                if modi == 0 or modi == 1:
-                    loss, denoised = calculate_loss(noise_images, noise_images2, model)
-                else:
-                    loss, denoised = calculate_loss(noise_images, clean, model)
-
-        denoised = denoised * noise_images.std() + noise_images.mean()
+                loss, denoised = calculate_loss(noise_images, noise_images2, model)      
+        if modi == 0 or modi == 2:
+            denoised = denoised * noise_images.std() + noise_images.mean()
+        elif modi == 1 or modi == 3:
+            clean = (clean-noise_images.mean())/noise_images.std()
 
         mask_orig = torch.zeros_like(clean).to(device)
         mask_orig[:,:,2,:] = 1
@@ -279,9 +280,9 @@ def main(arggv):
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
-        if modi == 0 or modi == 2:
+        if modi == 0 or modi == 1:
             model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=batchnorm).to(device)
-        elif modi == 1 or modi == 3:
+        elif modi == 2 or modi == 3:
             model = U_Net(1, first_out_chanel=24, scaling_kernel_size=(1,2), conv_kernel=5, batchNorm=batchnorm).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_lr)
