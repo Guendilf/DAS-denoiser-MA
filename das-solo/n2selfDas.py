@@ -190,7 +190,7 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
         #writer.add_image('Denoised Training', grid, global_step=epoch * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Training', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Training', image_imshow, global_step=epoch * len_dataloader + batch_idx)
-    elif mode == "validate":
+    elif mode == "val":
         #writer.add_image('Denoised Validation', grid, global_step=epoch * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Validation', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Validation', image_imshow, global_step=epoch * len_dataloader + batch_idx)
@@ -355,7 +355,7 @@ def main(arggv):
 
             if epoch % 5 == 0  or epoch==epochs-1:
                 model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
-                if save_model:
+                if save_model  or epoch==epochs-1:
                     torch.save(model.state_dict(), model_save_path)
                 else:
                     f = open(model_save_path, "x")

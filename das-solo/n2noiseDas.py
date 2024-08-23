@@ -137,7 +137,7 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
         #writer.add_image('Denoised Training', grid, global_step=epoch * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Training', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Training', image_imshow, global_step=epoch * len_dataloader + batch_idx)
-    elif mode == "validate":
+    elif mode == "val":
         #writer.add_image('Denoised Validation', grid, global_step=epoch * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Validation', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Validation', image_imshow, global_step=epoch * len_dataloader + batch_idx)
@@ -183,14 +183,15 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         noise4 = torch.randn_like(clean).to(device) * 0.5
         noise_images2 = clean + noise4
         noise_images2 = (noise_images2-noise_images2.mean())/noise_images2.std()
+        clean = (clean-noise_images.mean())/noise_images.std()
         if mode == "train":
             model.train()
             if modi == 0 or modi == 1:
                 loss, denoised = calculate_loss(noise_images, noise_images2, model)
-                denoised = denoised * noise_images.std() + noise_images.mean()
+                #denoised = denoised * noise_images.std() + noise_images.mean()
             else:
                 loss, denoised = calculate_loss(noise_images, clean, model)
-                denoised = denoised * noise_images.std() + noise_images.mean()
+                #denoised = denoised * noise_images.std() + noise_images.mean()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -317,7 +318,7 @@ def main(arggv):
 
             if epoch % 5 == 0  or epoch==epochs-1:
                 model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
-                if save_model:
+                if save_model or epoch==epochs-1:
                     torch.save(model.state_dict(), model_save_path)
                 else:
                     f = open(model_save_path, "x")
