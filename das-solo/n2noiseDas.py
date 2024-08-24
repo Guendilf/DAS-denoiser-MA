@@ -18,7 +18,7 @@ from import_files import n2nU_net
 from import_files import SyntheticNoiseDAS
 from scipy import signal
 
-epochs = 30 #2.000 epochen - 1 Epoche = 3424 samples
+epochs = 1 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 24
 dasChanels = 96
 timesamples = 128 #oder 30 sekunden bei samplingrate von 100Hz -> ?
@@ -144,7 +144,7 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
         #writer.add_image('Denoised Validation', grid, global_step=epoch * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Validation', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Validation', image_imshow, global_step=epoch * len_dataloader + batch_idx)
-        writer.add_image('Imshow Denoised Validation 2', 2, global_step=epoch * len_dataloader + batch_idx)
+        writer.add_image('Imshow Denoised Validation 2', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     else:
         #writer.add_image('Denoised Test', grid, global_step=1 * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Test', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
@@ -276,7 +276,7 @@ def main(arggv):
             dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="val")
             dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="test")
         """
-        print("n2noise")
+        print(f"n2noise {modi}")
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
