@@ -183,10 +183,19 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         std2 = std2.to(device).type(torch.float32)
         
         # make sample 0 mean and scale with std
-        noise_images = noise_images*std
-        noise_images2 = noise_images2*std2
-        noise_images = (noise_images - noise_images.mean()) / noise_images.std()
-        noise_images2 = (noise_images2 - noise_images2.mean()) / noise_images2.std()
+        if modi >= 2:
+            noise_images = noise_images*std
+            noise_images2 = noise_images2*std2
+            n1_mean = noise_images.mean()
+            n2_mean = noise_images2.mean()
+            n1_std = noise_images.std()
+            n2_std = noise_images2.std()
+            noise_images = (noise_images - n1_mean) / n1_std
+            noise_images2 = (noise_images2 - n2_mean) / n2_std
+            if modi == 5 or modi == 6:
+                clean = (clean-clean.mean())/clean.std()
+        if modi == 4:
+            clean = (clean-n1_mean)/n1_std
 
         if mode == "train":
             model.train()
@@ -204,10 +213,10 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
             with torch.no_grad():
                 model.eval()
                 loss, denoised = calculate_loss(noise_images, noise_images2, model)      
-        if modi == 0 or modi == 2:
-            denoised = denoised * noise_images.std() + noise_images.mean()
-        elif modi == 1 or modi == 3:
-            clean = (clean-noise_images.mean())/noise_images.std()
+        if modi == 3:
+            denoised = denoised * n1_std + n1_mean
+        if modi == 6:
+            denoised = (denoised - denoised.mean()) / denoised.std()
 
         mask_orig = torch.zeros_like(clean).to(device)
         mask_orig[:,:,2,:] = 1
@@ -280,10 +289,10 @@ def main(arggv):
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
-        if modi == 0 or modi == 1:
-            model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=batchnorm).to(device)
-        elif modi == 2 or modi == 3:
+        if modi == 0:
             model = U_Net(1, first_out_chanel=24, scaling_kernel_size=(1,2), conv_kernel=5, batchNorm=batchnorm).to(device)
+        else:
+            model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=batchnorm).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_lr)
 
