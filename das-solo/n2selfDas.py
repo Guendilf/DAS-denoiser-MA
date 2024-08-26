@@ -132,7 +132,7 @@ def save_das_graph(clean, noise_image, denoised):
     return fig
 
 def save_das_imshow(images, titles):
-    fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+    fig, axs = plt.subplots(1, 5, figsize=(25, 5))
     for i, (image, title) in enumerate(zip(images, titles)):
         image = image.to('cpu').detach().numpy()
         axs[i].imshow(image, origin='lower', aspect='auto', cmap='seismic', vmin=-1, vmax=1) #cmap='viridis'
@@ -153,8 +153,8 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
     #imshow
     noise_images_mask = noise_images * mask
     denoised_mask = denoised * mask
-    images = [clean[0, 0, :, :], denoised[0, 0, :, :], noise_images_mask[0, 0, :, :], denoised_mask[0, 0, :, :]]
-    titles = ['Clean', 'Denoised', 'Input * Mask', 'Denoised * Mask']
+    images = [clean[0, 0, :, :], denoised[0, 0, :, :], noise_images[0, 0, :, :], noise_images_mask[0, 0, :, :], denoised_mask[0, 0, :, :]]
+    titles = ['Clean', 'Denoised', 'Input', 'Input * Mask', 'Denoised * Mask']
     image_imshow, imshow_fig = save_das_imshow(images, titles)
     #plt.show()
     plt.close(imshow_fig)
@@ -368,6 +368,7 @@ def main(arggv):
         model_save_path = os.path.join(store_path, "models", "last-model.pth")
         torch.save(model.state_dict(), model_save_path)
         modi += 1
+    print("fertig")
 
 if __name__ == '__main__':
     app.run(main)

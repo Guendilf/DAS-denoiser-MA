@@ -18,7 +18,7 @@ from import_files import n2nU_net
 from import_files import SyntheticNoiseDAS
 from scipy import signal
 
-epochs = 1 #2.000 epochen - 1 Epoche = 3424 samples
+epochs = 30 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 24
 dasChanels = 96
 timesamples = 128 #oder 30 sekunden bei samplingrate von 100Hz -> ?
@@ -269,7 +269,7 @@ def main(arggv):
 
     store_path_root = log_files()
     global modi
-    for i in range(4):
+    for i in range(7):
         
         store_path = Path(os.path.join(store_path_root, f"n2noise-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
@@ -339,6 +339,7 @@ def main(arggv):
         writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 0)
         writer.add_scalar('Scaled Variance Test', statistics.mean(scaledVariance_log_test), 0)
         modi += 1
+    print("fertig")
 
 if __name__ == '__main__':
     app.run(main)
