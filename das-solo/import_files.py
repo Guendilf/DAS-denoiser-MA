@@ -310,7 +310,8 @@ class SyntheticNoiseDAS(Dataset):
         scale2 = sample2.std(dim=-1, keepdim=True)
         scale = sample.std(dim=-1, keepdim=True)
         sample /= scale
-        sample2 /= scale2
+        sample2 /= scale
+        eq_das /= scale
         #save_das_graph(eq_das.unsqueeze(0).unsqueeze(0), sample.unsqueeze(0).unsqueeze(0), scale.unsqueeze(0).unsqueeze(0))
         #           nois_image,         clean               noise         std der Daten (b,c,nx,1)  Ampllitude vom DAS (b)
         return sample.unsqueeze(0), eq_das.unsqueeze(0), noise.unsqueeze(0), scale.unsqueeze(0), amp, sample2.unsqueeze(0), noise2.unsqueeze(0), scale2.unsqueeze(0)

@@ -18,7 +18,7 @@ from import_files import n2nU_net
 from import_files import SyntheticNoiseDAS
 from scipy import signal
 
-epochs = 30 #2.000 epochen - 1 Epoche = 3424 samples
+epochs = 100 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 24
 dasChanels = 96
 timesamples = 128 #oder 30 sekunden bei samplingrate von 100Hz -> ?
@@ -30,7 +30,7 @@ lambda_lr = lambda epoch: lr_end + (lr - lr_end) * (1 - epoch / epochs)
 batchnorm = False
 save_model = False
 
-gauge_length = 1 #30 for synthhetic?
+gauge_length = 19.2 #n2n uses 1
 snr = (-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
 slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
 
@@ -105,10 +105,10 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
     images = [clean[0, 0, :, :], denoised[0, 0, :, :], noise_images[0, 0, :, :], noise_images_mask[0, 0, :, :], denoised_mask[0, 0, :, :]]
     titles = ['Clean', 'Denoised', 'Input', 'Input * Mask', 'Denoised * Mask']
     image_imshow, imshow_fig = save_das_imshow(images, titles, 'seismic')
-    image_imshow2, imshow_fig2 = save_das_imshow(images, titles, 'viridis')
+    #image_imshow2, imshow_fig2 = save_das_imshow(images, titles, 'viridis')
     #plt.show()
     plt.close(imshow_fig)
-    plt.close(imshow_fig2)
+    #plt.close(imshow_fig2)
 
     #graphen
     clean = clean[:2]
@@ -139,17 +139,17 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
         #writer.add_image('Denoised Training', grid, global_step=epoch * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Training', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Training', image_imshow, global_step=epoch * len_dataloader + batch_idx)
-        writer.add_image('Imshow Denoised Training 2', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
+        #writer.add_image('Imshow Denoised Training 2', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     elif mode == "val":
         #writer.add_image('Denoised Validation', grid, global_step=epoch * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Validation', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Validation', image_imshow, global_step=epoch * len_dataloader + batch_idx)
-        writer.add_image('Imshow Denoised Validation 2', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
+        #writer.add_image('Imshow Denoised Validation 2', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     else:
         #writer.add_image('Denoised Test', grid, global_step=1 * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Test', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Test', image_imshow, global_step=epoch * len_dataloader + batch_idx)
-        writer.add_image('Imshow Denoised Test 2', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
+        #writer.add_image('Imshow Denoised Test 2', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     #TODO:
     #imshow(denoised) und co aspecratio, vmin, vmax
     if not best:
@@ -181,21 +181,6 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         noise_images2 = noise_images2.to(device).type(torch.float32)
         std = std.to(device).type(torch.float32)
         std2 = std2.to(device).type(torch.float32)
-        
-        # make sample 0 mean and scale with std
-        if modi >= 2:
-            noise_images = noise_images*std
-            noise_images2 = noise_images2*std2
-            n1_mean = noise_images.mean()
-            n2_mean = noise_images2.mean()
-            n1_std = noise_images.std()
-            n2_std = noise_images2.std()
-            noise_images = (noise_images - n1_mean) / n1_std
-            noise_images2 = (noise_images2 - n2_mean) / n2_std
-            if modi == 5 or modi == 6:
-                clean = (clean-clean.mean())/clean.std()
-        if modi == 4:
-            clean = (clean-n1_mean)/n1_std
 
         if mode == "train":
             model.train()
@@ -204,19 +189,12 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
             loss.backward()
             optimizer.step()
             #scheduler.step()
-            """
-            if config.methodes[methode]['sheduler']:
-                scheduler.step()
-            """
+
             writer.add_scalar('Learning Rate N2N DAS', scheduler.get_last_lr()[0], global_step=epoch * len(dataLoader) + batch_idx)
         else:
             with torch.no_grad():
                 model.eval()
                 loss, denoised = calculate_loss(noise_images, noise_images2, model)      
-        if modi == 3:
-            denoised = denoised * n1_std + n1_mean
-        if modi == 6:
-            denoised = (denoised - denoised.mean()) / denoised.std()
 
         mask_orig = torch.zeros_like(clean).to(device)
         mask_orig[:,:,2,:] = 1
@@ -233,6 +211,9 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         loss_log.append(loss.item())
         scaledVariance_log.append(round(sv.item(),3))
         writer.add_scalar(f'Sigma {mode}', noise.std(), global_step=epoch * len(dataLoader) + batch_idx)
+        if batch_idx % 50 == 0 or batch_idx == len(dataLoader)-1:
+            saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
+        """
         if psnr > bestPsnr + 0.5:
             if psnr > bestPsnr:
                 bestPsnr = psnr
@@ -242,6 +223,7 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
     if save_on_last_epoch:
         pass
         saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, False)
+    """
     return loss_log, psnr_log, scaledVariance_log, bestPsnr
 
 def main(arggv):
@@ -263,9 +245,9 @@ def main(arggv):
     eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
     eq_strain_rates_test = np.load(strain_test_dir)
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=1000.0, size=2568, mode="train")
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=1000.0, size=480, mode="val")
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=1000.0, size=480, mode="test")
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=50.0, size=10016, mode="train")
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=50.0, size=992, mode="val")
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=50.0, size=992, mode="test")
 
     store_path_root = log_files()
     global modi
@@ -277,14 +259,7 @@ def main(arggv):
         tmp.mkdir(parents=True, exist_ok=True)
         tmp = Path(os.path.join(store_path, "models"))
         tmp.mkdir(parents=True, exist_ok=True)
-        """
-        if modi==1:
-            dasChanels = 11
-            timesamples = 2048
-            dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=2568, mode="train")
-            dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="val")
-            dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=480, mode="test")
-        """
+
         print(f"n2noise {modi}")
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
@@ -305,23 +280,13 @@ def main(arggv):
 
             loss, psnr, scaledVariance_log, bestPsnrTrain = train(model, device, dataLoader, optimizer, scheduler, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
             scheduler.step()
-            """
-            for i, loss_item in enumerate(loss):
-                writer.add_scalar('Loss Train', loss_item, epoch * len(dataLoader) + i)
-                writer.add_scalar('PSNR Train', psnr[i], epoch * len(dataLoader) + i)
-                writer.add_scalar('Scaled Variance Train', scaledVariance_log[i], epoch * len(dataLoader) + i)
-            """
+
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
             writer.add_scalar('PSNR Train', statistics.mean(psnr), epoch)
             writer.add_scalar('Scaled Variance Train', statistics.mean(scaledVariance_log), epoch)
 
             loss_val, psnr_val, scaledVariance_log_val, bestPsnrVal = train(model, device, dataLoader_validate, optimizer, scheduler, mode="val", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrVal) 
-            """
-            for i, loss_item in enumerate(loss_val):
-                writer.add_scalar('Loss Val', loss_item, epoch * len(dataLoader) + i)
-                writer.add_scalar('PSNR Val', psnr_val[i], epoch * len(dataLoader) + i)
-                writer.add_scalar('Scaled Variance Val', scaledVariance_log_val[i], epoch * len(dataLoader) + i)
-            """
+
             writer.add_scalar('Loss Val', statistics.mean(loss_val), epoch)
             writer.add_scalar('PSNR Val', statistics.mean(psnr_val), epoch)
             writer.add_scalar('Scaled Variance Val', statistics.mean(scaledVariance_log_val), epoch)

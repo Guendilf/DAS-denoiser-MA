@@ -237,10 +237,6 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            """
-            if config.methodes[methode]['sheduler']:
-                scheduler.step()
-            """
         else:
             with torch.no_grad():
                 model.eval()
@@ -267,6 +263,9 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         loss_log.append(loss.item())
         scaledVariance_log.append(round(sv.item(),3))
         writer.add_scalar(f'Sigma {mode}', noise.std(), global_step=epoch * len(dataLoader) + batch_idx)
+        if batch_idx % 50 == 0 or batch_idx == len(dataLoader)-1:
+            saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
+        """
         if psnr > bestPsnr + 0.5:
             if psnr > bestPsnr:
                 bestPsnr = psnr
@@ -275,6 +274,7 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
                 save_on_last_epoch = False
     if save_on_last_epoch:
         saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, False)
+    """
     return loss_log, psnr_log, scaledVariance_log, bestPsnr
 
 def main(arggv):
@@ -294,9 +294,9 @@ def main(arggv):
     eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
     eq_strain_rates_test = np.load(strain_test_dir)
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=3424, mode="train")
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=640, mode="val")
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=640, mode="test")
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=10016, mode="train")
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="val")
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="test")
 
     store_path_root = log_files()
     global modi
@@ -332,23 +332,13 @@ def main(arggv):
         for epoch in tqdm(range(epochs)):
 
             loss, psnr, scaledVariance_log, bestPsnrTrain = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
-            """
-            for i, loss_item in enumerate(loss):
-                writer.add_scalar('Loss Train', loss_item, epoch * len(dataLoader) + i)
-                writer.add_scalar('PSNR Train', psnr[i], epoch * len(dataLoader) + i)
-                writer.add_scalar('Scaled Variance Train', scaledVariance_log[i], epoch * len(dataLoader) + i)
-            """
+
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
             writer.add_scalar('PSNR Train', statistics.mean(psnr), epoch)
             writer.add_scalar('Scaled Variance Train', statistics.mean(scaledVariance_log), epoch)
 
             loss_val, psnr_val, scaledVariance_log_val, bestPsnrVal = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrVal) 
-            """
-            for i, loss_item in enumerate(loss_val):
-                writer.add_scalar('Loss Val', loss_item, epoch * len(dataLoader) + i)
-                writer.add_scalar('PSNR Val', psnr_val[i], epoch * len(dataLoader) + i)
-                writer.add_scalar('Scaled Variance Val', scaledVariance_log_val[i], epoch * len(dataLoader) + i)
-            """
+
             writer.add_scalar('Loss Val', statistics.mean(loss_val), epoch)
             writer.add_scalar('PSNR Val', statistics.mean(psnr_val), epoch)
             writer.add_scalar('Scaled Variance Val', statistics.mean(scaledVariance_log_val), epoch)
