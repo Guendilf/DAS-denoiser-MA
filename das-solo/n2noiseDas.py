@@ -251,7 +251,7 @@ def main(arggv):
 
     store_path_root = log_files()
     global modi
-    for i in range(7):
+    for i in range(2):
         
         store_path = Path(os.path.join(store_path_root, f"n2noise-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)

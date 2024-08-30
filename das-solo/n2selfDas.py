@@ -230,7 +230,6 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         clean = clean.to(device).type(torch.float32)
         noise_images = noise_images.to(device).type(torch.float32)
         std = std.to(device).type(torch.float32)
-        clean /= std
         if mode == "train":
             model.train()
             loss, denoised, mask_orig = calculate_loss(noise_images, model, batch_idx)
