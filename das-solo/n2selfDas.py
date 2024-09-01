@@ -14,6 +14,7 @@ from PIL import Image
 
 from import_files import log_files
 from import_files import U_Net
+from unet_copy import UNet as unet
 from import_files import SyntheticNoiseDAS
 from scipy import signal
 
@@ -242,7 +243,7 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
                 loss, denoised, mask_orig = calculate_loss(noise_images, model, batch_idx)
                 buffer = torch.zeros_like(denoised).to(device)
                 for i in range(denoised.shape[2]):
-                    mask = torch.zeros(clean.shape[0],clean.shape[1],clean.shape[2],clean.shape[-1]).to(device)
+                    mask = torch.zeros_like(clean).to(device)
                     #11 because i use 11 DAS Chanels during training
                     mask[:,:,i%11,:] = 1
                     input_image = noise_images[:,:,int(i/11):int(i/11)+11,:] * (1-mask)
@@ -312,11 +313,14 @@ def main(arggv):
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
-        if modi == 0:
-            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
-        else:
-            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
 
+        if modi == 0:
+            #model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
+            model = unet(n_channels=1, feature=4, bilinear=True).to(device)
+        else:
+            #model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
+            model = unet(n_channels=1, feature=4, bilinear=False).to(device)
+        
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         """
         if method_params['sheduler']:

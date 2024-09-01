@@ -107,9 +107,9 @@ class DataGenerator(keras.utils.Sequence):
         self.masks = masks
         self.masked_samples = samples * (1 - masks)
         pass
-
+    """
     def generate_masks(self, samples):
-        """ Generate masks and masked samples """
+        "" Generate masks and masked samples ""
         N_masks = self.N_masks
         N_patch = self.N_patch
         Ny = samples.shape[2]
@@ -138,7 +138,7 @@ class DataGenerator(keras.utils.Sequence):
         # Masked samples (for loss function)
         masked_samples = c_masks * samples
         return samples, masked_samples, masks
-
+    """
 
 class CallBacks:
 
