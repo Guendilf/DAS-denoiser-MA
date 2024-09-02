@@ -18,7 +18,7 @@ from unet_copy import UNet as unet
 from import_files import SyntheticNoiseDAS
 from scipy import signal
 
-epochs = 100 #2.000 epochen - 1 Epoche = 3424 samples
+epochs = 2000 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 32
 dasChanelsTrain = 11
 dasChanelsVal = 11
@@ -58,37 +58,7 @@ def show_das(original, norm=True):
         #plt.title(f'Channel {i + 1}')
         plt.tight_layout()
     plt.show()
-"""
-def save_das_graph(original, noise, denoised):
-    def plot_das(data, title, ax, batch_idx):
-        if isinstance(data, torch.Tensor):
-            data = data.to('cpu').detach().numpy()
-        data = data[batch_idx]
-        for i in range(data.shape[1]):
-            #std = data[0][i].std()
-            #if std == 0:
-                #std = 0.000000001
-            sr = data[0][i]# / std
-            #sr = data[0][i]
-            ax.plot(sr + 3*i, c="k", lw=0.5, alpha=1)
-        ax.set_title(title)
-        ax.set_axis_off()
-    
-    # Erstelle eine Figur mit 3 Subplots
-    fig, axs = plt.subplots(3, 2, figsize=(14, 15))
 
-    # Erste Spalte - Batch 0
-    plot_das(original, 'Original (Clean) 1', axs[0, 0], 0)
-    plot_das(denoised, 'Reconstructed 1', axs[1, 0], 0)
-    plot_das(noise, 'Input (with noise) 1', axs[2, 0], 0)
-    # Zweite Spalte - Batch 1
-    plot_das(original, 'Original (Clean) 2', axs[0, 1], 1)
-    plot_das(denoised, 'Reconstructed 2', axs[1, 1], 1)
-    plot_das(noise, 'Input (with noise) 2', axs[2, 1], 1)
-    plt.tight_layout()
-    
-    return fig
-"""
 def save_das_graph(clean, noise_image, denoised):
     if isinstance(clean, torch.Tensor):
         clean = clean.to('cpu').detach().numpy()
@@ -97,7 +67,7 @@ def save_das_graph(clean, noise_image, denoised):
     if isinstance(denoised, torch.Tensor):
         denoised = denoised.to('cpu').detach().numpy()
     # Create a figure with 2 rows and 4 columns
-    fig, axes = plt.subplots(clean.shape[0], 4, figsize=(20, 10))
+    fig, axes = plt.subplots(clean.shape[0], 4, figsize=(20, 5*clean.shape[0]))
 
     # Plot the waves
     for i in range(clean.shape[0]):
@@ -201,6 +171,7 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
         writer.add_image('Imshow Denoised Test', image_imshow, global_step=epoch * len_dataloader + batch_idx)
     #TODO:
     #imshow(denoised) und co aspecratio, vmin, vmax
+    """
     if not best:
         return
     if "test" not in mode:
@@ -211,6 +182,7 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
         else:
             f = open(model_save_path, "x")
             f.close()
+    """
 
 def calculate_loss(noise_image, model, batch_idx):
     #masked_noise_image, mask = Mask.n2self_mask(noise_image, batch_idx)
@@ -265,6 +237,8 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         writer.add_scalar(f'Sigma {mode}', noise.std(), global_step=epoch * len(dataLoader) + batch_idx)
         if batch_idx % 50 == 0 or batch_idx == len(dataLoader)-1:
             saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
+        elif mode == "test" and batch_idx%50 == 0:
+            saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
         """
         if psnr > bestPsnr + 0.5:
             if psnr > bestPsnr:
@@ -315,11 +289,11 @@ def main(arggv):
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
 
         if modi == 0:
-            #model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
-            model = unet(n_channels=1, feature=4, bilinear=True).to(device)
+            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
+            #model = unet(n_channels=1, feature=4, bilinear=True).to(device)
         else:
-            #model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
-            model = unet(n_channels=1, feature=4, bilinear=False).to(device)
+            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
+            #model = unet(n_channels=1, feature=4, bilinear=False).to(device)
         
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         """
