@@ -45,7 +45,7 @@ def save_das_graph(clean, noise_image, denoised):
     if isinstance(denoised, torch.Tensor):
         denoised = denoised.to('cpu').detach().numpy()
     # Create a figure with 2 rows and 4 columns
-    fig, axes = plt.subplots(clean.shape[0], 4, figsize=(20, 10))
+    fig, axes = plt.subplots(clean.shape[0], 4, figsize=(20, 5*clean.shape[0]))
 
     # Plot the waves
     for i in range(clean.shape[0]):

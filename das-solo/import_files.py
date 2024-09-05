@@ -289,7 +289,7 @@ class SyntheticNoiseDAS(Dataset):
             snr = 10 ** snr_sample  # log10-uniform distribution
         else:
             snr_sample = self.log_SNR
-            snr = 10 ** (self.log_SNR/10)
+            snr = 10 ** (snr_sample)
 
         #"""
         amp = 2 * np.sqrt(snr) / torch.abs(eq_das + 1e-10).max() #rescale so, max amplitude = 2*wrt(snr)
@@ -308,7 +308,8 @@ class SyntheticNoiseDAS(Dataset):
         sample = eq_das + noise
         sample2 = eq_das + noise2
         scale2 = sample2.std(dim=-1, keepdim=True)
-        scale = sample.std(dim=-1, keepdim=True)
+        #scale = sample.std(dim=-1, keepdim=True)
+        scale = sample.std()
         sample /= scale
         sample2 /= scale
         eq_das /= scale

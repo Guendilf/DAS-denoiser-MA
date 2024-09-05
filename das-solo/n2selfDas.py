@@ -18,7 +18,7 @@ from unet_copy import UNet as unet
 from import_files import SyntheticNoiseDAS
 from scipy import signal
 
-epochs = 2000 #2.000 epochen - 1 Epoche = 3424 samples
+epochs = 200 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 32
 dasChanelsTrain = 11
 dasChanelsVal = 11
@@ -120,7 +120,7 @@ def save_das_imshow(images, titles):
     image_tensor = image_tensor.permute(2, 0, 1)  # Channels First (C, H, W)
     return image_tensor, fig
     
-def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoch, len_dataloader, batch_idx, model, store, best):
+def saveAndPicture(psnr, clean, noise_images, denoised, mask, std, mode, writer, epoch, len_dataloader, batch_idx, model, store, best):
     #imshow
     noise_images_mask = noise_images * mask
     denoised_mask = denoised * mask
@@ -129,24 +129,31 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
     image_imshow, imshow_fig = save_das_imshow(images, titles)
     #plt.show()
     plt.close(imshow_fig)
+    #clean scaled with own std (like authors)
+    clean_tmp = (clean*std.view(std.shape[0], 1, 1, 1))/clean.std()
+    images = [clean_tmp[0, 0, :, :], denoised[0, 0, :, :], noise_images[0, 0, :, :], noise_images_mask[0, 0, :, :], denoised_mask[0, 0, :, :]]
+    titles = ['Clean', 'Denoised', 'Input', 'Input * Mask', 'Denoised * Mask']
+    image_imshow2, imshow_fig2 = save_das_imshow(images, titles)
+    #plt.show()
+    plt.close(imshow_fig2)
 
     #graphen
-    clean = clean[:2]
-    clean = clean[:,:,:,0:512]
+    clean_tmp = clean[:2]
+    clean_tmp = clean_tmp[:,:,:,0:512]
     noise_images = noise_images[:2]
     noise_images = noise_images[:,:,:,0:512]
     denoised = denoised[:2]
     denoised = denoised[:,:,:,0:512]
     chanels = []
-    for i in range(clean.shape[0]):
-        for j in range(clean.shape[2]):
+    for i in range(clean_tmp.shape[0]):
+        for j in range(clean_tmp.shape[2]):
             if mask[i,0,j,0] == 1:
                 chanels.append(j)
                 break
-    clean = clean[:,:,chanels,:]
+    clean_tmp = clean_tmp[:,:,chanels,:]
     noise_images = noise_images[:,:,chanels,:]
     denoised = denoised[:,:,chanels,:]
-    fig = save_das_graph(clean, noise_images, denoised)
+    fig = save_das_graph(clean_tmp, noise_images, denoised)
     # Speichere das Bild in TensorBoard
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
@@ -154,21 +161,41 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, mode, writer, epoc
     plt.close(fig)
     buf.seek(0)
     image_graph = np.array(Image.open(buf))
+    
+    #clean sclend with own std (like authors)
+    clean_tmp = (clean * std.view(std.shape[0], 1, 1, 1))/clean.std()
+    clean_tmp = clean[:2]
+    clean_tmp = clean_tmp[:,:,:,0:512]
+    clean_tmp = clean_tmp[:,:,chanels,:]
+    fig = save_das_graph(clean_tmp, noise_images, denoised)
+    # Speichere das Bild in TensorBoard
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    #plt.show()
+    plt.close(fig)
+    buf.seek(0)
+    image_graph2 = np.array(Image.open(buf))
 
     
 
     if mode == "train":
-        #writer.add_image('Denoised Training', grid, global_step=epoch * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Training', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Training', image_imshow, global_step=epoch * len_dataloader + batch_idx)
+
+        writer.add_image('Graph Denoised Training (own clean normed)', image_graph2, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
+        writer.add_image('Imshow Denoised Training (own clean normed)', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     elif mode == "val":
-        #writer.add_image('Denoised Validation', grid, global_step=epoch * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Validation', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Validation', image_imshow, global_step=epoch * len_dataloader + batch_idx)
+
+        writer.add_image('Graph Denoised Validation (own clean normed)', image_graph2, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
+        writer.add_image('Imshow Denoised Validation (own clean normed)', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     else:
-        #writer.add_image('Denoised Test', grid, global_step=1 * len_dataloader + batch_idx)
         writer.add_image('Graph Denoised Test', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Test', image_imshow, global_step=epoch * len_dataloader + batch_idx)
+
+        writer.add_image('Graph Denoised Test (own clean normed)', image_graph2, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
+        writer.add_image('Imshow Denoised Test (own clean normed)', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     #TODO:
     #imshow(denoised) und co aspecratio, vmin, vmax
     """
@@ -236,18 +263,18 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         scaledVariance_log.append(round(sv.item(),3))
         writer.add_scalar(f'Sigma {mode}', noise.std(), global_step=epoch * len(dataLoader) + batch_idx)
         if batch_idx % 50 == 0 or batch_idx == len(dataLoader)-1:
-            saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
+            saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, std, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
         elif mode == "test" and batch_idx%50 == 0:
-            saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
+            saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, std, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
         """
         if psnr > bestPsnr + 0.5:
             if psnr > bestPsnr:
                 bestPsnr = psnr
-            saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
+            saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, std, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
             if batch_idx >= len(dataLoader)-5:
                 save_on_last_epoch = False
     if save_on_last_epoch:
-        saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, False)
+        saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, std, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, False)
     """
     return loss_log, psnr_log, scaledVariance_log, bestPsnr
 
