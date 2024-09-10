@@ -16,9 +16,10 @@ from import_files import log_files
 from import_files import U_Net
 from unet_copy import UNet as unet
 from import_files import SyntheticNoiseDAS
+from import_files import Direct_translation_SyntheticDAS
 from scipy import signal
 
-epochs = 200 #2.000 epochen - 1 Epoche = 3424 samples
+epochs = 500 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 32
 dasChanelsTrain = 11
 dasChanelsVal = 11
@@ -129,13 +130,6 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, std, mode, writer,
     image_imshow, imshow_fig = save_das_imshow(images, titles)
     #plt.show()
     plt.close(imshow_fig)
-    #clean scaled with own std (like authors)
-    clean_tmp = (clean*std.view(std.shape[0], 1, 1, 1))/clean.std()
-    images = [clean_tmp[0, 0, :, :], denoised[0, 0, :, :], noise_images[0, 0, :, :], noise_images_mask[0, 0, :, :], denoised_mask[0, 0, :, :]]
-    titles = ['Clean', 'Denoised', 'Input', 'Input * Mask', 'Denoised * Mask']
-    image_imshow2, imshow_fig2 = save_das_imshow(images, titles)
-    #plt.show()
-    plt.close(imshow_fig2)
 
     #graphen
     clean_tmp = clean[:2]
@@ -161,41 +155,17 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, std, mode, writer,
     plt.close(fig)
     buf.seek(0)
     image_graph = np.array(Image.open(buf))
-    
-    #clean sclend with own std (like authors)
-    clean_tmp = (clean * std.view(std.shape[0], 1, 1, 1))/clean.std()
-    clean_tmp = clean[:2]
-    clean_tmp = clean_tmp[:,:,:,0:512]
-    clean_tmp = clean_tmp[:,:,chanels,:]
-    fig = save_das_graph(clean_tmp, noise_images, denoised)
-    # Speichere das Bild in TensorBoard
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png')
-    #plt.show()
-    plt.close(fig)
-    buf.seek(0)
-    image_graph2 = np.array(Image.open(buf))
-
-    
+        
 
     if mode == "train":
         writer.add_image('Graph Denoised Training', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Training', image_imshow, global_step=epoch * len_dataloader + batch_idx)
-
-        writer.add_image('Graph Denoised Training (own clean normed)', image_graph2, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
-        writer.add_image('Imshow Denoised Training (own clean normed)', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     elif mode == "val":
         writer.add_image('Graph Denoised Validation', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Validation', image_imshow, global_step=epoch * len_dataloader + batch_idx)
-
-        writer.add_image('Graph Denoised Validation (own clean normed)', image_graph2, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
-        writer.add_image('Imshow Denoised Validation (own clean normed)', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     else:
         writer.add_image('Graph Denoised Test', image_graph, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
         writer.add_image('Imshow Denoised Test', image_imshow, global_step=epoch * len_dataloader + batch_idx)
-
-        writer.add_image('Graph Denoised Test (own clean normed)', image_graph2, global_step=epoch * len_dataloader + batch_idx, dataformats='HWC')
-        writer.add_image('Imshow Denoised Test (own clean normed)', image_imshow2, global_step=epoch * len_dataloader + batch_idx)
     #TODO:
     #imshow(denoised) und co aspecratio, vmin, vmax
     """
@@ -295,13 +265,18 @@ def main(arggv):
     eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
     eq_strain_rates_test = np.load(strain_test_dir)
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=10016, mode="train")
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="val")
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="test")
+    #dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=10016, mode="train")
+    #dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="val")
+    #dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="test")
+    
+    dataset = Direct_translation_SyntheticDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=10016, mode="train")
+    dataset_validate = Direct_translation_SyntheticDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="val")
+    dataset_test = Direct_translation_SyntheticDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="test")
+    
 
     store_path_root = log_files()
     global modi
-    for i in range(2):
+    for i in range(1):
 
         store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
@@ -316,10 +291,10 @@ def main(arggv):
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
 
         if modi == 0:
-            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
+            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
             #model = unet(n_channels=1, feature=4, bilinear=True).to(device)
         else:
-            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
+            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
             #model = unet(n_channels=1, feature=4, bilinear=False).to(device)
         
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
