@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 import torch
 from torchvision.utils import make_grid
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -12,12 +13,16 @@ from torch.utils.tensorboard import SummaryWriter
 import io
 from PIL import Image
 
-from import_files import log_files
+from import_files import gerate_spezific_das, log_files, bandpass
 from import_files import U_Net
 from unet_copy import UNet as unet
 from import_files import SyntheticNoiseDAS
 from import_files import Direct_translation_SyntheticDAS
 from scipy import signal
+
+#tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\Code\DAS-denoiser-MA\runs"      #PC
+#tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\runs"                           #vom Server
+#tensorboard --logdir="C:\Users\LaAlexPi\Documents\01_Uni\MA\runs\"                         #Laptop
 
 epochs = 500 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 32
@@ -40,6 +45,31 @@ TODO:
 - swuish activation funktion with ??? parameter     -> Sigmoid Linear Unit (SiLU) function
 - gauge = 19,2
 - 50 Hz frequenz
+"""
+def reconstruct(model, device, noise_images):
+    buffer = torch.zeros_like(noise_images).to(device)
+    training_size = 11 #how much chanels were used for training
+    num_chunks = noise_images.shape[2] // training_size
+    left_chunks = noise_images.shape[2] % training_size
+    for chunk_idx in range(num_chunks):
+        # Extract the chunk from the larger picture
+        start_idx = chunk_idx * training_size
+        chunk = noise_images[:, :, start_idx:start_idx+training_size, :]
+        for i in range(training_size):
+            mask = torch.zeros_like(chunk).to(device)
+            mask[:, :, i, :] = 1  # Mask out the i-th channel
+            input_image = chunk * (1 - mask)
+            j_denoised = model(input_image)
+            buffer[:, :, start_idx:start_idx+training_size, :] += j_denoised * mask
+    # calculate the left overs when chanels are not a multiplicative of training_size
+    for i in range(left_chunks):
+        chunk = noise_images[:, :, noise_images.shape[2]-11:, :]
+        mask = torch.zeros_like(chunk).to(device)
+        mask[:, :, training_size-i-1, :] = 1
+        input_image = chunk * (1 - mask)
+        j_denoised = model(input_image)
+        buffer[:, :, noise_images.shape[2]-11:, :] += j_denoised * mask
+    return buffer
 """
 def show_das(original, norm=True):
     if isinstance(original, torch.Tensor):
@@ -120,7 +150,7 @@ def save_das_imshow(images, titles):
     image_tensor = torch.Tensor(np.array(plt.imread(buf)))
     image_tensor = image_tensor.permute(2, 0, 1)  # Channels First (C, H, W)
     return image_tensor, fig
-    
+ 
 def saveAndPicture(psnr, clean, noise_images, denoised, mask, std, mode, writer, epoch, len_dataloader, batch_idx, model, store, best):
     #imshow
     noise_images_mask = noise_images * mask
@@ -168,7 +198,7 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, std, mode, writer,
         writer.add_image('Imshow Denoised Test', image_imshow, global_step=epoch * len_dataloader + batch_idx)
     #TODO:
     #imshow(denoised) und co aspecratio, vmin, vmax
-    """
+    
     if not best:
         return
     if "test" not in mode:
@@ -179,7 +209,185 @@ def saveAndPicture(psnr, clean, noise_images, denoised, mask, std, mode, writer,
         else:
             f = open(model_save_path, "x")
             f.close()
-    """
+    
+"""
+#get bottom line for time-axis
+def set_bottom_line(ax):
+    ax.spines['top'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_visible(True)
+# delete black outline of plot
+def remove_frame(ax):
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+def generate_wave_plot(das, noisy_waves, denoised_waves, amps, snrs):
+    # Lege den Plot mit 3 Spalten und der gewünschten Anzahl an Zeilen fest
+    fig, axs = plt.subplots(3, 3, figsize=(15, 10), gridspec_kw={'width_ratios': [1, 1, 1], 'height_ratios': [1, 1, 1]})
+
+    # Gleiche Skalen für alle Plots festlegen
+    min_wave = das[0].min().item()
+    max_wave = das[0].max().item()
+
+    das = das.to('cpu').detach().numpy()
+    noisy_waves = noisy_waves.to('cpu').detach().numpy()
+    denoised_waves = denoised_waves.to('cpu').detach().numpy()
+
+    # 1. Spalte: Originalsignal plotten
+    axs[1, 0].plot(das[0])
+    axs[1, 0].set_title('Original Wave')
+    axs[1, 0].set_ylim(min_wave, max_wave)  # Gleiche Skala für y-Achse
+    remove_frame(axs[1, 0])  # Entferne den Rahmen
+    set_bottom_line(axs[1, 0])  # Zeige nur die untere Linie
+    axs[1, 0].yaxis.set_visible(False)  # Deaktiviere y-Achsen für das mittige Diagramm
+    axs[1, 0].set_xlabel('Time')
+
+    # Leere Felder in der ersten Spalte
+    axs[0, 0].set_axis_off()  # Oberes Feld leer
+    axs[2, 0].set_axis_off()  # Unteres Feld leer
+
+    # 2. Spalte: Verrauschte Wellen plotten
+    for i, noisy_wave in enumerate(noisy_waves):
+        axs[i, 1].plot(noisy_wave[0]/amps[i].item())
+        axs[i, 1].set_title(f'Noisy Wave (SNR={snrs[i]})')
+        axs[i, 1].set_ylim(min_wave, max_wave)
+        remove_frame(axs[i, 1])  # Entferne den Rahmen
+        if i < 2:  # Nur im untersten Plot eine x-Achse anzeigen
+            axs[i, 1].set_xticks([])
+        else:# Für den untersten Plot die Linie und die Beschriftung anzeigen
+            set_bottom_line(axs[i, 1])
+            axs[i, 1].set_xlabel('Time')
+        axs[i, 1].set_yticks([])
+
+    # 3. Spalte: Entstaubte Wellen durch das Modell plotten
+    for i, denoised_wave in enumerate(denoised_waves):
+        axs[i, 2].plot(denoised_wave[0]/amps[i].item())
+        axs[i, 2].set_title(f'Denoised Wave (SNR={snrs[i]})')
+        axs[i, 2].set_ylim(min_wave, max_wave)
+        remove_frame(axs[i, 2])  # Entferne den Rahmen
+        if i < 2:  # Nur im untersten Plot eine x-Achse anzeigen
+            axs[i, 2].set_xticks([])
+        else:# Für den untersten Plot die Linie und die Beschriftung anzeigen
+            set_bottom_line(axs[i, 2])
+            axs[i, 2].set_xlabel('Time')
+        axs[i, 2].set_yticks([])
+
+    # Beschriftung der x-Achse (nur für den unteren Plot)
+    axs[2, 1].set_xlabel('Time')  # X-Achse für zweite Spalte (unten)
+    axs[2, 2].set_xlabel('Time')  # X-Achse für dritte Spalte (unten)
+
+    # Layout anpassen
+    plt.tight_layout()
+    #plt.show()
+    return fig
+
+def generate_das_plot(clean_das, all_noisy_waves, all_denoised_waves, amps, snr_indices):
+    # Übertrage die Daten auf die CPU
+    clean_das_cpu = clean_das.to('cpu').detach().numpy()
+    noisy_waves_cpu = all_noisy_waves.to('cpu').detach().numpy()
+    denoised_waves_cpu = all_denoised_waves.to('cpu').detach().numpy()
+
+    # Berechne das globale Minimum und Maximum der Daten für eine einheitliche Farbgebung
+    vmin = -1e-08 #clean_das_cpu.min() = -0.00000013847445 or -1.3847445e-07
+    vmax = 1e-08 #clean_das_cpu.max() = 1.0335354e-07
+    vmin = np.percentile(clean_das_cpu, 9)
+    vmax = np.percentile(clean_das_cpu, 91)
+
+    # Erstelle das Grid (3 Spalten und 8 Zeilen)
+    fig = plt.figure(figsize=(16, 9))
+    gs = GridSpec(8, 3, height_ratios=[1, 1, 1, 1, 1, 1, 1, 1], figure=fig)
+
+    # Spalte 1: Clean DAS (mittig, über vier Zeilen)
+    ax_clean = fig.add_subplot(gs[2:6, 0])  # Zeilen 2 bis 5 in Spalte 1
+    ax_clean.imshow(clean_das_cpu, aspect='auto', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
+    ax_clean.set_title('Clean DAS' )#if i == 2 else "")
+    ax_clean.set_ylabel('Channel Index')
+    ax_clean.set_xlabel('Time')
+        
+
+    # Spalte 2: Noisy DAS (SNR 0.1 und SNR 10 in Zeilen)
+    for i, snr_idx in enumerate(snr_indices):
+        ax_noisy = fig.add_subplot(gs[i*4:i*4+4, 1])  # Jeweils zwei Zeilen pro Plot
+        ax_noisy.imshow(noisy_waves_cpu[snr_idx] / amps[snr_idx].item(), aspect='auto', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
+        ax_noisy.set_title(f'Denoised DAS (SNR={0.1 if snr_idx == 0 else 10})')
+        if i == 1:
+            ax_noisy.set_xlabel('Time')
+        
+    # Spalte 3: Denoised DAS (SNR 0.1 und SNR 10 in Zeilen)
+    for i, snr_idx in enumerate(snr_indices):
+        ax_denoised = fig.add_subplot(gs[i*4:i*4+4, 2])  # Jeweils zwei Zeilen pro Plot
+        ax_denoised.imshow(denoised_waves_cpu[snr_idx] / amps[snr_idx].item(), aspect='auto', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
+        ax_denoised.set_title(f'Denoised DAS (SNR={0.1 if snr_idx == 0 else 10})')
+        if i == 1:
+            ax_denoised.set_xlabel('Time')
+
+    # Lege das Layout fest und zeige den Plot
+    plt.tight_layout()
+    #plt.show()
+    return fig
+
+def save_example_wave(das, model, device, writer, epoch):
+    SNRs = [0.1, 1, 10]
+    all_noise_das = []
+    all_denoised_das = []
+    amps = []
+    scales = []
+    for SNR in SNRs:
+        noise = np.random.randn(das.shape[0], das.shape[1] + 2*100)
+        noise = (bandpass(noise, 1.0, 10.0, 50.0, 100).copy())
+        noise = torch.from_numpy(noise).to(device).type(torch.float32)
+        peak = torch.abs(das+ 1e-10).max()
+
+        # Get a J-invariant reconstruction
+        amp = 2 * np.sqrt(SNR) / peak   #sehr GROß!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        das = das * amp 
+        noise_das = das + noise
+        scale = noise_das.std()
+        noise_das /= scale
+        noise_das = noise_das.unsqueeze(0).unsqueeze(0)
+        denoised_das = reconstruct(model, device, noise_das)
+        all_noise_das.append(noise_das.squeeze(0).squeeze(0) * scale)
+        all_denoised_das.append(denoised_das.squeeze(0).squeeze(0) * scale)
+        amps.append(amp)
+        scales.append(scale)
+    all_noise_das = torch.stack(all_noise_das)
+    all_denoised_das = torch.stack(all_denoised_das)
+    amps = torch.stack(amps)
+    scales = torch.stack(scales)
+    wave_plot_fig = generate_wave_plot(das, all_noise_das, all_denoised_das, amps, SNRs)
+    das_plot_fig = generate_das_plot(das, all_noise_das, all_denoised_das, amps, snr_indices=[0,2])
+
+
+
+    buf = io.BytesIO()
+    wave_plot_fig.savefig(buf, format='png')
+    #plt.show()
+    plt.close(wave_plot_fig)
+    buf.seek(0)
+    img = np.array(Image.open(buf))
+    writer.add_image("Image Plot Wave", img, global_step=epoch, dataformats='HWC')
+    buf.close()
+
+    buf = io.BytesIO()
+    das_plot_fig.savefig(buf, format='png')
+    #plt.show()
+    plt.close(das_plot_fig)
+    buf.seek(0)
+    img = np.array(Image.open(buf))
+    writer.add_image("Image Plot DAS", img, global_step=epoch, dataformats='HWC')
+    buf.close()
+
+    max_intensity=das.max()-das.min()
+    for i, snr in enumerate(SNRs):
+        mse = torch.mean((das-all_denoised_das[i])**2)
+        psnr = 10 * torch.log10((max_intensity ** 2) / mse)
+        #calculatte scaled variance (https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277/1?file=26674421) In[13]
+        sv = torch.mean((all_noise_das[i] - all_denoised_das[i])**2, dim=-1) / torch.mean((all_noise_das[i])**2, dim=-1)
+        sv = torch.mean(sv)
+        writer.add_scalar(f'Image PSNR of SNR={snr}', psnr, global_step=epoch)
+        writer.add_scalar(f'Image Scaled Variance of SNR={snr}', sv, global_step=epoch)
+    
 
 def calculate_loss(noise_image, model, batch_idx):
     #masked_noise_image, mask = Mask.n2self_mask(noise_image, batch_idx)
@@ -200,6 +408,12 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         clean = clean.to(device).type(torch.float32)
         noise_images = noise_images.to(device).type(torch.float32)
         std = std.to(device).type(torch.float32)
+        amp = amp.to(device).type(torch.float32)
+        if modi >= 1:
+            noise_images = noise_images * std
+            if modi ==2:
+                noise_images = noise_images / amp.view(amp.shape[0],1,1,1)
+                clean = clean / amp.view(amp.shape[0],1,1,1)
         if mode == "train":
             model.train()
             loss, denoised, mask_orig = calculate_loss(noise_images, model, batch_idx)
@@ -210,15 +424,16 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
             with torch.no_grad():
                 model.eval()
                 loss, denoised, mask_orig = calculate_loss(noise_images, model, batch_idx)
-                buffer = torch.zeros_like(denoised).to(device)
-                for i in range(denoised.shape[2]):
-                    mask = torch.zeros_like(clean).to(device)
-                    #11 because i use 11 DAS Chanels during training
-                    mask[:,:,i%11,:] = 1
-                    input_image = noise_images[:,:,int(i/11):int(i/11)+11,:] * (1-mask)
-                    j_denoised = model(input_image)
-                    buffer += j_denoised*mask
-                denoised = buffer
+                #J-Invariant reconstruction
+                denoised = reconstruct(model, device, noise_images)
+        #norming
+        if modi == 0:
+            noise_images *= std
+            denoised *= std
+        if modi <= 1:
+            clean /= amp.view(amp.shape[0],1,1,1)
+            noise_images /= amp.view(amp.shape[0],1,1,1)
+            denoised /= amp.view(amp.shape[0],1,1,1)
         #calculate psnr
         max_intensity=clean.max()-clean.min()
         mse = torch.mean((clean-denoised)**2)
@@ -232,20 +447,12 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         loss_log.append(loss.item())
         scaledVariance_log.append(round(sv.item(),3))
         writer.add_scalar(f'Sigma {mode}', noise.std(), global_step=epoch * len(dataLoader) + batch_idx)
-        if batch_idx % 50 == 0 or batch_idx == len(dataLoader)-1:
+        """
+        if batch_idx % 100 == 0 or batch_idx == len(dataLoader)-1:
             saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, std, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
         elif mode == "test" and batch_idx%50 == 0:
             saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, std, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
         """
-        if psnr > bestPsnr + 0.5:
-            if psnr > bestPsnr:
-                bestPsnr = psnr
-            saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, std, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, True)
-            if batch_idx >= len(dataLoader)-5:
-                save_on_last_epoch = False
-    if save_on_last_epoch:
-        saveAndPicture(psnr.item(), clean, noise_images, denoised, mask_orig, std, mode, writer, epoch, len(dataLoader), batch_idx, model, store_path, False)
-    """
     return loss_log, psnr_log, scaledVariance_log, bestPsnr
 
 def main(arggv):
@@ -260,23 +467,27 @@ def main(arggv):
 
     print("lade Datensätze ...")
     eq_strain_rates = np.load(strain_train_dir)
+    eq_strain_rates = eq_strain_rates / eq_strain_rates.std(axis=0) #nomralize (like Z.212 from the paper)
     split_idx = int(0.8 * len(eq_strain_rates))
     eq_strain_rates_train = torch.tensor(eq_strain_rates[:split_idx])
     eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
     eq_strain_rates_test = np.load(strain_test_dir)
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    #dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=10016, mode="train")
-    #dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="val")
-    #dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="test")
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=300*batchsize)
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
     
-    dataset = Direct_translation_SyntheticDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=10016, mode="train")
-    dataset_validate = Direct_translation_SyntheticDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="val")
-    dataset_test = Direct_translation_SyntheticDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="test")
+    #dataset = Direct_translation_SyntheticDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=10016, mode="train")
+    #dataset_validate = Direct_translation_SyntheticDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="val")
+    #dataset_test = Direct_translation_SyntheticDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="test")
     
+    example_wave = eq_strain_rates_test[6][4200:6248]
+    example_das = gerate_spezific_das(example_wave, nx=300, nt=2048, eq_slowness=1/(19.2*50.0), gauge=4, fs=50.0)
+    example_das = example_das.to(device).type(torch.float32)
 
     store_path_root = log_files()
     global modi
-    for i in range(1):
+    for i in range(3):
 
         store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
@@ -290,11 +501,11 @@ def main(arggv):
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
 
-        if modi == 0:
+        if modi >= 0:
             model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
             #model = unet(n_channels=1, feature=4, bilinear=True).to(device)
-        else:
-            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
+        #else:
+            #model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
             #model = unet(n_channels=1, feature=4, bilinear=False).to(device)
         
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -309,7 +520,6 @@ def main(arggv):
         bestPsnrVal=0
         bestPsnrTest=0
         for epoch in tqdm(range(epochs)):
-
             loss, psnr, scaledVariance_log, bestPsnrTrain = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
 
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
@@ -323,12 +533,15 @@ def main(arggv):
             writer.add_scalar('Scaled Variance Val', statistics.mean(scaledVariance_log_val), epoch)
 
             if epoch % 5 == 0  or epoch==epochs-1:
+                """
                 model_save_path = os.path.join(store_path, "models", f"{epoch}-model.pth")
                 if save_model  or epoch==epochs-1:
                     torch.save(model.state_dict(), model_save_path)
                 else:
                     f = open(model_save_path, "x")
                     f.close()
+                """
+                save_example_wave(example_das, model, device, writer, epoch)
 
         loss_test, psnr_test, scaledVariance_log_test, bestPsnrTest = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, store_path=store_path, bestPsnr=bestPsnrTest)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)

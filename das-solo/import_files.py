@@ -249,12 +249,8 @@ def layer_init(layer, std=0.1, bias_const=0.0):
 
 class SyntheticNoiseDAS(Dataset):
     def __init__(self, eq_strain_rates, 
-                 nx=11, nt=2048, eq_slowness=(1e-4, 5e-3), log_SNR=(-2,4),
-                 gauge=4, fs=50.0, size=1000, mode="train"):
-        #size = 1000 bedeutet, insgesammt 1000 Samples auf allen Chaneln
-        #       1 Chanel hat ca. 1000/11=90.9 Samples
-        #fs = Abtastrate in Hz -> default: 50 Samples in einer Sekunde
-        #nt = Zeitfenster: 2048 Samples -> 2 sekunden
+                 nx=11, nt=2048, eq_slowness=(1e-4, 5e-3), log_SNR=(-2,4),  #slownes = 0.0001 - 0.005
+                 gauge=4, fs=50.0, size=1000):
         self.eq_strain_rates = eq_strain_rates / eq_strain_rates.std(dim=-1, keepdim=True)
         self.nx = nx
         self.nt = nt
@@ -263,7 +259,6 @@ class SyntheticNoiseDAS(Dataset):
         self.gauge = gauge
         self.fs = fs
         self.size = size
-        self.mode = mode
     
     def __len__(self):
         return self.size
@@ -277,47 +272,35 @@ class SyntheticNoiseDAS(Dataset):
             eq_strain_rate *= -1
             
         slowness = np.random.uniform(*self.eq_slowness)
-        #slowness = self.eq_slowness
         if np.random.random() < 0.5:
             slowness *= -1
         eq_das = generate_synthetic_das(eq_strain_rate, self.gauge, self.fs, slowness, nx=self.nx)
         j = np.random.randint(0, eq_strain_rate.shape[-1]-self.nt+1)
         eq_das = eq_das[:,j:j+self.nt]
-        
+
         if isinstance(self.log_SNR, tuple):
             snr_sample = np.random.uniform(*self.log_SNR)
-            snr = 10 ** snr_sample  # log10-uniform distribution
         else:
             snr_sample = self.log_SNR
-            snr = 10 ** (snr_sample)
-
-        #"""
-        amp = 2 * np.sqrt(snr) / torch.abs(eq_das + 1e-10).max() #rescale so, max amplitude = 2*wrt(snr)
+        snr = 10 ** snr_sample
+        amp = 2 * np.sqrt(snr) / torch.abs(eq_das + 1e-10).max()
         eq_das *= amp
 
         # 1-10 Hz filtered Gaussian white noise
         gutter = 100
         noise = np.random.randn(self.nx, self.nt + 2*gutter)
         noise = torch.from_numpy(bandpass(noise, 1.0, 10.0, self.fs, gutter).copy())
-        
         noise2 = np.random.randn(self.nx, self.nt + 2*gutter)
         noise2 = torch.from_numpy(bandpass(noise2, 1.0, 10.0, self.fs, gutter).copy())
 
-        #print(f"snr-sample: {snr_sample}, snr: {snr}, noise.std: {noise.std()}")
-
         sample = eq_das + noise
         sample2 = eq_das + noise2
-        scale2 = sample2.std(dim=-1, keepdim=True)
-        #scale = sample.std(dim=-1, keepdim=True)
-        scale = sample.std()
+        scale = sample.std(dim=-1, keepdim=True)
+        scale2 = sample2.std(dim=-1, keepdim=True) #only for return
         sample /= scale
         sample2 /= scale
-        eq_das /= scale
-        #save_das_graph(eq_das.unsqueeze(0).unsqueeze(0), sample.unsqueeze(0).unsqueeze(0), scale.unsqueeze(0).unsqueeze(0))
-        #           nois_image,         clean               noise         std der Daten (b,c,nx,1)  Ampllitude vom DAS (b)
+                
         return sample.unsqueeze(0), eq_das.unsqueeze(0), noise.unsqueeze(0), scale.unsqueeze(0), amp, sample2.unsqueeze(0), noise2.unsqueeze(0), scale2.unsqueeze(0)
-        #"""
-        #return eq_das.unsqueeze(0)
 
 
 class Direct_translation_SyntheticDAS(Dataset):
@@ -338,77 +321,7 @@ class Direct_translation_SyntheticDAS(Dataset):
         self.samples, self.clean, self.noise, self.stds, self.amplitudes, self.samples2, self.noise2, self.std2 = self.__generate_data()
     
     def __generate_data(self):
-        """Generiert die Daten für den gesamten Batch."""
-        Nt = self.nt
-        Nx = self.nx
-        N_total = self.size
-        X = self.X
-
-        samples = np.zeros((N_total, Nx, Nt))
-        noise = np.zeros_like(samples)
-        masks = np.ones_like(samples)
         
-        # Erzeuge zufällige Startpunkte und Richtungen für die Samples
-        N_mid = self.Nt_all // 2
-        t_starts = np.random.randint(low=N_mid-Nt, high=N_mid-Nt//2, size=N_total)
-        SNRs = np.random.uniform(self.log_SNR[0], self.log_SNR[1], size=N_total)
-        
-        amp_list = []
-        std_list = []
-        std_list2 = []
-
-        for s, t_start in enumerate(t_starts):
-            sample_ind = np.random.randint(0, self.Nx-1)
-            t_slice = slice(t_start, t_start + Nt)
-
-            sign = np.random.choice([1, -1])  # Polaritätsumkehr
-            direction = np.random.choice([1, -1])  # Verschiebungsrichtung
-
-            slowness = np.random.uniform(*self.eq_slowness)
-            shift = direction * self.gauge * slowness * self.fs
-
-            if np.random.random() < 0.5:
-                X = torch.flip(X, dims=(0,))
-            sample = sign * X[sample_ind]
-
-            SNR = 10 ** (0.5 * SNRs[s])
-            amp = 2 * SNR / np.abs(sample).max()
-            sample *= amp
-            amp_list.append(amp)
-
-            for i in range(Nx):
-                samples[s, i] = np.roll(sample, int(i * shift))[t_slice]
-
-            #blank_ind = np.random.randint(0, Nx)
-            #masks[s, blank_ind] = 0
-
-        # Noise-Generierung
-        gutter = 100
-        noise = np.random.randn(self.nx*N_total, self.nt + 2*gutter)
-        noise = (bandpass(noise, 1.0, 10.0, self.fs, gutter).copy())
-        noise = noise.reshape(*samples.shape)
-        noise2 = np.random.randn(self.nx*N_total, self.nt + 2*gutter)
-        noise2 = (bandpass(noise2, 1.0, 10.0, self.fs, gutter).copy())
-        noise2 = noise2.reshape(*samples.shape)
-        """
-        noisy_samples = samples + noise
-        for s, sample in enumerate(noisy_samples):
-            std = sample.std()
-            noisy_samples[s] = sample / std
-            std_list.append(std)
-        noisy_samples2 = samples + noise2
-        """
-        noisy_samples = samples + noise
-        std_array = noisy_samples.std(axis=(1, 2), keepdims=True)
-        noisy_samples /= std_array  
-        std_list = std_array.squeeze().tolist() 
-
-        noisy_samples2 = samples + noise2
-        std_array2 = noisy_samples2.std(axis=(1, 2), keepdims=True) 
-        noisy_samples2 /= std_array                                 #!!! scale the same way as samples1 
-        std_list2 = std_array2.squeeze().tolist()
-
-        #masked_samples = noisy_samples * (1 - masks)
         #           nois_image,                 clean                      noise         std der Daten (b,c,nx,1)  Ampllitude vom DAS (b)   
         return torch.tensor(noisy_samples).unsqueeze(1), torch.tensor(samples).unsqueeze(1), torch.tensor(noise).unsqueeze(1), torch.tensor(std_list), torch.tensor(amp_list), torch.tensor(noisy_samples2).unsqueeze(1), torch.tensor(noise2).unsqueeze(1), torch.tensor(std_list2)
 
@@ -443,6 +356,18 @@ def generate_synthetic_das(strain_rate, gauge, fs, slowness, nx=512):
     for i in range(nx):
         sample[i] = torch.roll(strain_rate, int(i*shift + np.random.randn(1)))
     
+    return sample
+def gerate_spezific_das(strain_rate,  nx=11, nt=2048, eq_slowness=0,
+                 gauge=4, fs=50.0, station=None, start=None):
+    if eq_slowness == 0:
+        eq_slowness = 1/(gauge*fs)
+    if station is not None:
+        sample = strain_rate[station]
+    else:
+        sample = strain_rate
+    if start is not None:
+        sample = sample[start:start+nt]
+    sample = generate_synthetic_das(sample, gauge, fs, eq_slowness, nx)
     return sample
 
 def log_files():
