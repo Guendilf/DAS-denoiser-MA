@@ -337,17 +337,15 @@ def save_example_wave(eq_strain_rates_test, model, device, writer, epoch):
     all_denoised_das = []
     amps = []
     for SNR in SNRs:
-        noise = np.random.randn(len(wave))  # Zufälliges Rauschen
-        noise = torch.from_numpy(noise)
+        noise = np.random.randn(*clean_das.shape)  # Zufälliges Rauschen
+        noise = torch.from_numpy(noise).to(device).float()
         snr = 10 ** SNR
-        amp = 2 * np.sqrt(snr) / torch.abs(wave + 1e-10).max()
-        noisy_wave = wave * amp + noise
+        amp = 2 * np.sqrt(snr) / torch.abs(clean_das + 1e-10).max()
+        noisy_das = clean_das * amp + noise
         amps.append(amp)
-        noisy_wave = gerate_spezific_das(noisy_wave,  nx=300, nt=2048, eq_slowness=1/(19.2*50.0),
-                    gauge=19.2, fs=50.0, station=None, start=None)
-        noisy_wave = noisy_wave.unsqueeze(0).unsqueeze(0).to(device)
-        denoised_waves = reconstruct(model, device, noisy_wave)
-        all_noise_das.append(noisy_wave.squeeze(0).squeeze(0))
+        noisy_das = noisy_das.unsqueeze(0).unsqueeze(0).to(device).float()
+        denoised_waves = reconstruct(model, device, noisy_das)
+        all_noise_das.append(noisy_das.squeeze(0).squeeze(0))
         all_denoised_das.append(denoised_waves.squeeze(0).squeeze(0))
     all_noise_das = torch.stack(all_noise_das)
     all_denoised_das = torch.stack(all_denoised_das)
@@ -466,7 +464,7 @@ def main(arggv):
     eq_strain_rates_test = np.load(strain_test_dir)
     eq_strain_rates_test = eq_strain_rates_test / eq_strain_rates_test.std(axis=0)
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=793*batchsize)
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=300*batchsize)
     dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
     dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
     
@@ -512,7 +510,7 @@ def main(arggv):
         bestPsnrTest=0
         for epoch in tqdm(range(epochs)):
             save_example_wave(eq_strain_rates_test, model, device, writer, epoch)
-            break
+
             loss, psnr, scaledVariance_log, bestPsnrTrain = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
 
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
