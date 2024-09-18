@@ -327,36 +327,33 @@ def generate_das_plot(clean_das, all_noisy_waves, all_denoised_waves, amps, snr_
     #plt.show()
     return fig
 
-def save_example_wave(das, model, device, writer, epoch):
+def save_example_wave(eq_strain_rates_test, model, device, writer, epoch):
+    wave = eq_strain_rates_test[6][4200:6248]
+    clean_das = gerate_spezific_das(wave, nx=300, nt=2048, eq_slowness=1/(19.2*50.0), gauge=19.2, fs=50.0)
+    clean_das = clean_das.to(device).type(torch.float32)
+
     SNRs = [0.1, 1, 10]
     all_noise_das = []
     all_denoised_das = []
     amps = []
-    scales = []
     for SNR in SNRs:
-        noise = np.random.randn(das.shape[0], das.shape[1] + 2*100)
-        noise = (bandpass(noise, 1.0, 10.0, 50.0, 100).copy())
-        noise = torch.from_numpy(noise).to(device).type(torch.float32)
-        peak = torch.abs(das+ 1e-10).max()
-
-        # Get a J-invariant reconstruction
-        amp = 2 * np.sqrt(SNR) / peak   #sehr GROß!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        das = das * amp 
-        noise_das = das + noise
-        scale = noise_das.std()
-        noise_das /= scale
-        noise_das = noise_das.unsqueeze(0).unsqueeze(0)
-        denoised_das = reconstruct(model, device, noise_das)
-        all_noise_das.append(noise_das.squeeze(0).squeeze(0) * scale)
-        all_denoised_das.append(denoised_das.squeeze(0).squeeze(0) * scale)
+        noise = np.random.randn(len(wave))  # Zufälliges Rauschen
+        noise = torch.from_numpy(noise)
+        snr = 10 ** SNR
+        amp = 2 * np.sqrt(snr) / torch.abs(wave + 1e-10).max()
+        noisy_wave = wave * amp + noise
         amps.append(amp)
-        scales.append(scale)
+        noisy_wave = gerate_spezific_das(noisy_wave,  nx=300, nt=2048, eq_slowness=1/(19.2*50.0),
+                    gauge=19.2, fs=50.0, station=None, start=None)
+        noisy_wave = noisy_wave.unsqueeze(0).unsqueeze(0).to(device)
+        denoised_waves = reconstruct(model, device, noisy_wave)
+        all_noise_das.append(noisy_wave.squeeze(0).squeeze(0))
+        all_denoised_das.append(denoised_waves.squeeze(0).squeeze(0))
     all_noise_das = torch.stack(all_noise_das)
     all_denoised_das = torch.stack(all_denoised_das)
     amps = torch.stack(amps)
-    scales = torch.stack(scales)
-    wave_plot_fig = generate_wave_plot(das, all_noise_das, all_denoised_das, amps, SNRs)
-    das_plot_fig = generate_das_plot(das, all_noise_das, all_denoised_das, amps, snr_indices=[0,2])
+    wave_plot_fig = generate_wave_plot(clean_das, all_noise_das, all_denoised_das, amps, SNRs)
+    das_plot_fig = generate_das_plot(clean_das, all_noise_das, all_denoised_das, amps, snr_indices=[0,2])
 
 
 
@@ -378,9 +375,9 @@ def save_example_wave(das, model, device, writer, epoch):
     writer.add_image("Image Plot DAS", img, global_step=epoch, dataformats='HWC')
     buf.close()
 
-    max_intensity=das.max()-das.min()
+    max_intensity=clean_das.max()-clean_das.min()
     for i, snr in enumerate(SNRs):
-        mse = torch.mean((das-all_denoised_das[i])**2)
+        mse = torch.mean((clean_das-all_denoised_das[i])**2)
         psnr = 10 * torch.log10((max_intensity ** 2) / mse)
         #calculatte scaled variance (https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277/1?file=26674421) In[13]
         sv = torch.mean((all_noise_das[i] - all_denoised_das[i])**2, dim=-1) / torch.mean((all_noise_das[i])**2, dim=-1)
@@ -409,11 +406,6 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         noise_images = noise_images.to(device).type(torch.float32)
         std = std.to(device).type(torch.float32)
         amp = amp.to(device).type(torch.float32)
-        if modi >= 1:
-            noise_images = noise_images * std
-            if modi ==2:
-                noise_images = noise_images / amp.view(amp.shape[0],1,1,1)
-                clean = clean / amp.view(amp.shape[0],1,1,1)
         if mode == "train":
             model.train()
             loss, denoised, mask_orig = calculate_loss(noise_images, model, batch_idx)
@@ -430,7 +422,7 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path,
         if modi == 0:
             noise_images *= std
             denoised *= std
-        if modi <= 1:
+        if modi == 1:
             clean /= amp.view(amp.shape[0],1,1,1)
             noise_images /= amp.view(amp.shape[0],1,1,1)
             denoised /= amp.view(amp.shape[0],1,1,1)
@@ -472,8 +464,9 @@ def main(arggv):
     eq_strain_rates_train = torch.tensor(eq_strain_rates[:split_idx])
     eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
     eq_strain_rates_test = np.load(strain_test_dir)
+    eq_strain_rates_test = eq_strain_rates_test / eq_strain_rates_test.std(axis=0)
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=300*batchsize)
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=793*batchsize)
     dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
     dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
     
@@ -481,13 +474,11 @@ def main(arggv):
     #dataset_validate = Direct_translation_SyntheticDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="val")
     #dataset_test = Direct_translation_SyntheticDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="test")
     
-    example_wave = eq_strain_rates_test[6][4200:6248]
-    example_das = gerate_spezific_das(example_wave, nx=300, nt=2048, eq_slowness=1/(19.2*50.0), gauge=4, fs=50.0)
-    example_das = example_das.to(device).type(torch.float32)
+    
 
     store_path_root = log_files()
     global modi
-    for i in range(3):
+    for i in range(2):
 
         store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
@@ -520,6 +511,8 @@ def main(arggv):
         bestPsnrVal=0
         bestPsnrTest=0
         for epoch in tqdm(range(epochs)):
+            save_example_wave(eq_strain_rates_test, model, device, writer, epoch)
+            break
             loss, psnr, scaledVariance_log, bestPsnrTrain = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
 
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
@@ -541,7 +534,7 @@ def main(arggv):
                     f = open(model_save_path, "x")
                     f.close()
                 """
-                save_example_wave(example_das, model, device, writer, epoch)
+                save_example_wave(eq_strain_rates_test, model, device, writer, epoch)
 
         loss_test, psnr_test, scaledVariance_log_test, bestPsnrTest = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, store_path=store_path, bestPsnr=bestPsnrTest)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)
