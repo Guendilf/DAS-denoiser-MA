@@ -7,7 +7,7 @@ from pathlib import Path
 from tqdm import tqdm
 from skimage.metrics import structural_similarity as sim
 
-import config_test as config
+import config as config
 
 from models.N2N_Unet import N2N_Unet_DAS, N2N_Orig_Unet, Cut2Self, U_Net_origi, U_Net, TestNet
 from metric import Metric
@@ -35,7 +35,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 
-max_Iteration = 2
+max_Iteration = 20
 max_Epochs = 20
 max_Predictions = 100 #für self2self um reconstruktion zu machen
 #torch.manual_seed(42)
@@ -301,7 +301,7 @@ def main(argv):
     else:
         device = "cuda:3"
     methoden_liste = ["n2noise 1_input", "n2noise 2_input", "n2score", "n2self", "n2self j-invariant", "n2same batch", "n2info batch", "n2void"] #"self2self"
-    methoden_liste = ["n2noise 1_input", "n2noise 2_input"]
+    #methoden_liste = ["n2void"]
 
     layout = {
         "Training vs Validation": {

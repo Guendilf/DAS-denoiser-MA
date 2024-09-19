@@ -61,6 +61,7 @@ def n2self_DAS(noise_image, batch_idx, model):
 
 
 def n2void(original_images, noise_images, model, device, num_patches_per_img, windowsize, num_masked_pixels, augmentation, shape):
+    #shape = how big should th patches be
     if shape:
         patches, clean_patches = generate_patches_from_list(noise_images, original_images, num_patches_per_img=num_patches_per_img, shape=shape, augment=augmentation)
     else:
@@ -84,9 +85,9 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
 
 def n2same(noise_images, device, model, lambda_inv=2):
     #old
-    #mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
+    mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
     #new
-    _,_,mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-2],noise_images.shape[-1]), 0.5, augment=False)
+    #_,_,mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-2],noise_images.shape[-1]), 0.5, augment=False)
     marked_points = torch.sum(mask)
 
     mask = mask.to(device)
@@ -99,6 +100,33 @@ def n2same(noise_images, device, model, lambda_inv=2):
     loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
     loss = loss_rec + lambda_inv * 1 * (loss_inv/marked_points).sqrt()
     return loss, denoised, denoised_mask #J = count of maked_points
+
+def n2info(noise_images, model, device, sigma_n):
+    
+    #OLD  masking
+    
+    #if mask is None:
+    mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
+    mask = mask.to(device)
+    masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
+    masked_input = masked_input + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask ) #deleted pixels will be gausian noise with sigma=0.2 as in appendix D
+    #else:
+    """
+    _, _, mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-2],noise_images.shape[-1]), 0.5, augment=False)
+    """
+    mask = mask.to(device)
+    marked_points = torch.sum(mask)
+    masked_input = (1-mask) * noise_images + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask)
+
+    denoised = model(noise_images)
+    denoised_mask = model(masked_input)
+    mse = torch.nn.MSELoss()
+    loss_rec = torch.mean((denoised-noise_images)**2) # mse(denoised, noise_images)
+    loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
+    loss = loss_rec + config.methodes['n2info']['lambda_inv'] * sigma_n * (loss_inv/marked_points).sqrt()
+    if math.isnan(loss):
+        pass
+    return loss, denoised, loss_rec, loss_inv, marked_points
 
 def self2self(noise_images, model, device, dropout_rate):
     
@@ -128,32 +156,6 @@ def self2self(noise_images, model, device, dropout_rate):
     loss = torch.sum((denoised - noise_images)**2 * (1-mask)) / marked_points
     denoised = filp_lr_ud(denoised, flip_lr, flip_ud)
     return loss, denoised, mask, flip_lr, flip_ud
-
-def n2info(noise_images, model, device, sigma_n):
-    """
-    #OLD  masking
-    
-    if mask is None:
-        mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
-        mask = mask.to(device)
-        masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
-        masked_input = masked_input + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask ) #deleted pixels will be gausian noise with sigma=0.2 as in appendix D
-    else:
-    """
-    _, _, mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-2],noise_images.shape[-1]), 0.5, augment=False)
-    mask = mask.to(device)
-    marked_points = torch.sum(mask)
-    masked_input = (1-mask) * noise_images + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask)
-
-    denoised = model(noise_images)
-    denoised_mask = model(masked_input)
-    mse = torch.nn.MSELoss()
-    loss_rec = torch.mean((denoised-noise_images)**2) # mse(denoised, noise_images)
-    loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
-    loss = loss_rec + config.methodes['n2info']['lambda_inv'] * sigma_n * (loss_inv/marked_points).sqrt()
-    if math.isnan(loss):
-        pass
-    return loss, denoised, loss_rec, loss_inv, marked_points
 
 def n2n_loss_for_das(denoised, target):
     loss_function = torch.nn.MSELoss()
@@ -192,7 +194,7 @@ def calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_i
         #std_clean = original.std(dim=[0,2,3])
         #original = (original - mean_clean[None, :, None, None]) / std_clean[None, :, None, None]
         if noise_images.shape[1]==3:
-            loss, denoised, patches, original_patches = n2void(original, noise_images, model, device, num_patches_per_img=num_patches_per_img, windowsize=5, num_masked_pixels=num_masked_pixels, augmentation=augmentation)
+            loss, denoised, patches, original_patches = n2void(original, noise_images, model, device, num_patches_per_img=num_patches_per_img, windowsize=5, num_masked_pixels=num_masked_pixels, shape=False, augmentation=augmentation)
         else: # DAS
             loss, denoised, patches, original_patches = n2void(original, noise_images, model, device, num_patches_per_img=num_patches_per_img, windowsize=5, num_masked_pixels=num_masked_pixels, augmentation=augmentation, shape=(11,noise_images.shape[-1]),)
         noise_images = patches
