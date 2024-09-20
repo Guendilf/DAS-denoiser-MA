@@ -227,7 +227,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                             e_l = e_l / config.methodes['n2info']['predictions']
                             #estimated_sigma = (lin)**0.5 + (lin + lex-e_l)**0.5 #inplementation from original github of noise2info
                             m = len(dataLoader) * denoised.shape[0] *3*128*128 #TODO: is m right?
-                            estimated_sigma = lex + (lex**2 * m *(lin-e_l))**0.5/m #from paper
+                            estimated_sigma = lex + (lex**2 + m *(lin-e_l))**0.5/m #from paper
                             print('new sigma_loss is ', estimated_sigma)
                             if 0 < estimated_sigma < sigma_info:
                                 sigma_info = float(estimated_sigma)
@@ -369,11 +369,11 @@ def main(argv):
             #model = U_Net().to(device)
         else:
             if "n2same" in methode or "n2info" in methode:
-                model = U_Net(first_out_chanel=96, batchNorm=method_params['batchNorm']).to(device)
+                model = U_Net(in_chanel=3, first_out_chanel=96, batchNorm=method_params['batchNorm']).to(device)
             elif "s2self" in methode:
                 model = P_U_Net(in_chanel=3, batchNorm=method_params['batchNorm'], dropout=method_params['dropout']).to(device)
             else:
-                model = U_Net(batchNorm=method_params['batchNorm']).to(device)
+                model = U_Net(in_chanel=3, batchNorm=method_params['batchNorm']).to(device)
         #configAtr = getattr(config, methode) #config.methode wobei methode ein string ist
         optimizer = torch.optim.Adam(model.parameters(), lr=method_params['lr'])
         if method_params['sheduler']:

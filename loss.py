@@ -107,9 +107,6 @@ def n2info(noise_images, model, device, sigma_n):
     
     #if mask is None:
     mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
-    mask = mask.to(device)
-    masked_input = (1-mask) * noise_images #delete masked pixels in noise_img
-    masked_input = masked_input + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask ) #deleted pixels will be gausian noise with sigma=0.2 as in appendix D
     #else:
     """
     _, _, mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-2],noise_images.shape[-1]), 0.5, augment=False)
