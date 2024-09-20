@@ -44,7 +44,7 @@ lambda_lr = lambda epoch: lr_end + (lr - lr_end) * (1 - epoch / max_Epochs)
 """
 
 
-def saveModel_pictureComparison(model, len_dataloader, methode, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch):
+def saveModel_pictureComparison(model, len_dataloader, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch):
     if round(psnr_batch.item(),1) > bestPsnr + 0.5 or batch_idx == len_dataloader-1:
         if round(psnr_batch.item(),1) > bestPsnr and mode != "test":
             bestPsnr = round(psnr_batch.item(),1)
@@ -55,11 +55,6 @@ def saveModel_pictureComparison(model, len_dataloader, methode, mode, store, epo
             else:
                 f = open(model_save_path, "x")
                 f.close()
-        if methode == "n2void" and mode == "train":
-            skip = int(denoised.shape[0] / batch) #64=ursprüngllichhe Batchgröße
-            denoised = denoised[::skip] # zeige nur jedes 6. Bild an (im path wird aus einem bild 6 wenn die Batchhgröße = 64)
-            original = original[::skip]
-            noise_images = noise_images[::skip]
         comparison = torch.cat((original[:4], denoised[:4], noise_images[:4]), dim=0)
         grid = make_grid(comparison, nrow=4, normalize=False).cpu()
         if mode == "train":
@@ -122,9 +117,9 @@ def train(model, optimizer, device, dataLoader, sigma, mode, store, epoch, bestP
         sim_log.append(similarity_batch)
 
         #save model + picture
-        bestPsnr = saveModel_pictureComparison(model, len(dataLoader), methode, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch)
+        bestPsnr = saveModel_pictureComparison(model, len(dataLoader), mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch)
 
-    return loss_log, psnr_log, sim_log, bestPsnr, sigma_info, original_psnr_log
+    return loss_log, psnr_log, sim_log, bestPsnr, original_psnr_log
 
 
 def main(argv):
@@ -214,7 +209,7 @@ def main(argv):
 
         for epoch in tqdm(range(max_Epochs)):
             
-            loss, psnr, similarity, bestPsnr, sigma_info, original_psnr_log = train(model, optimizer, device, dataLoader, sigma=sigma, mode="train", 
+            loss, psnr, similarity, bestPsnr, original_psnr_log = train(model, optimizer, device, dataLoader, sigma=sigma, mode="train", 
                                         store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer, save_model=save_model)
             
             for i, loss_item in enumerate(loss):
@@ -242,7 +237,7 @@ def main(argv):
             
                 
             #runing on Server
-            loss_val, psnr_val, similarity_val, bestPsnr_val, sigma_info, original_psnr_log_val = train(model, optimizer, device, dataLoader_validate, sigma=sigma, mode="validate", 
+            loss_val, psnr_val, similarity_val, bestPsnr_val, original_psnr_log_val = train(model, optimizer, device, dataLoader_validate, sigma=sigma, mode="validate", 
                                         store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer, save_model=save_model)
 
             for i, loss_item in enumerate(loss_val):
@@ -282,7 +277,7 @@ def main(argv):
         
         #if torch.cuda.device_count() == 1:
             #continue
-        loss_test, psnr_test, similarity_test, _, _, original_psnr_log_test = train(model, optimizer, device, dataLoader_test, sigma=sigma, mode="test", 
+        loss_test, psnr_test, similarity_test, _, original_psnr_log_test = train(model, optimizer, device, dataLoader_test, sigma=sigma, mode="test", 
                                         store=store_path, epoch=epoch, bestPsnr=bestPsnr, writer = writer, save_model=save_model)
         writer.add_scalar("PSNR Test", Metric.avg_list(psnr_test), 0)
         writer.add_scalar("PSNR original (bot normed) Test", Metric.avg_list(original_psnr_log_test), 0)
