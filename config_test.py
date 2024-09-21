@@ -20,7 +20,7 @@ methodes = dict(
         batchNorm = True,
         dropout = 0,
         net = 'U_Net',
-        sheduler = True,
+        sheduler = False, #war eigentlich True
 
         skip_first_connection = True,
         featurLayer = 96,
@@ -36,7 +36,7 @@ methodes = dict(
         batchNorm = True,
         dropout = 0,
         net = 'U_Net',
-        sheduler = True,
+        sheduler = False, #war eigentlich True
         validation_dataset_size = 100,
 
         featurLayer = 96,
