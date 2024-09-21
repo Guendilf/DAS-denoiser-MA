@@ -55,21 +55,24 @@ class Mask:
             maskamount = int(np.round(mask_percentage*total_area/1))
             if maskamount == 0:
                 maskamount = 1
-        mask_area = mask_size[0] * mask_size[1]
-        num_regions = int(np.round((mask_percentage * total_area) / mask_area))
-        if num_regions == 0:
-            num_regions = 1
-        masks = []
         #fast methode for pixel only "select_random_pixel" or even with nn.functional.dropout
         #saturated sampling ensured through "torch.randperm" in select_random_pixels
         if mask_size == (1,1):
-            for _ in range(img.shape[0]):
-                mask = select_random_pixels((img.shape[1], img.shape[2],img.shape[3]), maskamount)
-                masks.append(mask)
-            mask = torch.stack(masks, dim=0)
+            mask = torch.zeros_like(img)
+            for i in range(img.shape[0]):
+                masked_indices = torch.randperm(total_area)[:maskamount]
+                mask_tmp = torch.zeros(img.shape[-3] , img.shape[-2] , img.shape[-1])
+                # Pixel in Maske auf 1 setzen
+                mask_tmp.view(-1)[masked_indices] = 1
+                mask[i] = mask_tmp
             return mask, torch.count_nonzero(mask)
         
         else:
+            mask_area = mask_size[0] * mask_size[1]
+            num_regions = int(np.round((mask_percentage * total_area) / mask_area))
+            if num_regions == 0:
+                num_regions = 1
+            masks = []
             print("mask_random else teil")
             for _ in range(img.shape[0]):
                 mask = torch.zeros(img.shape[-1], img.shape[-2], dtype=torch.float32)

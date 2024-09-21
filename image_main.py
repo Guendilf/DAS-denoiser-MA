@@ -132,8 +132,8 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
         noise_images = noise_images.to(device)
         if "n2noise" in methode:
             noise_images2 = n2n_create_2_input(device, methode, original, noise_images)
-            if "test" in methode:
-                noise_images2 = add_norm_noise(original, config.methodes['n2noise_2_input_test']['secoundSigma'], a=-1, b=1, norm=False)
+            #if "test" in methode:
+                #noise_images2 = n2n_create_2_input(device, methode, original, original)
             #noise_images2 = torch.clip(noise_images2, 0,1.0)
         else:
             noise_images2 = None

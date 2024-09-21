@@ -88,18 +88,16 @@ def n2same(noise_images, device, model, lambda_inv=2):
     mask, marked_points = Mask.mask_random(noise_images, maskamount=0.005, mask_size=(1,1))
     #new
     #_,_,mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-2],noise_images.shape[-1]), 0.5, augment=False)
+    mask = mask.to(device)
     marked_points = torch.sum(mask)
 
-    mask = mask.to(device)
-    masked_input = (1-mask) * noise_images + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask)
-    
+    input = noise_images * (1-mask) + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask)
     denoised = model(noise_images)
-    denoised_mask = model(masked_input)
-    mse = torch.nn.MSELoss()
+    denoised_masked = model(input)
     loss_rec = torch.mean((denoised-noise_images)**2) # mse(denoised, noise_images)
-    loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
-    loss = loss_rec + lambda_inv * 1 * (loss_inv/marked_points).sqrt()
-    return loss, denoised, denoised_mask #J = count of maked_points
+    loss_inv = torch.sum(mask*(denoised-denoised_masked)**2)# mse(denoised, denoised_mask)
+    loss = loss_rec + lambda_inv * (loss_inv/marked_points).sqrt()
+    return loss, denoised, denoised_masked #J = count of maked_points
 
 def n2info(noise_images, model, device, sigma_n):
     
@@ -113,16 +111,14 @@ def n2info(noise_images, model, device, sigma_n):
     """
     mask = mask.to(device)
     marked_points = torch.sum(mask)
-    masked_input = (1-mask) * noise_images + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask)
-
+    input = noise_images * (1-mask) + (torch.normal(0, 0.2, size=noise_images.shape).to(device) * mask)
     denoised = model(noise_images)
-    denoised_mask = model(masked_input)
-    mse = torch.nn.MSELoss()
+    denoised_masked = model(input)
     loss_rec = torch.mean((denoised-noise_images)**2) # mse(denoised, noise_images)
-    loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
+    loss_inv = torch.sum(mask*(denoised-denoised_masked)**2)# mse(denoised, denoised_mask)
     loss = loss_rec + config.methodes['n2info']['lambda_inv'] * sigma_n * (loss_inv/marked_points).sqrt()
     if math.isnan(loss):
-        pass
+        print(f"{loss_rec} + {loss_inv} * {(loss_inv/marked_points).sqrt()}, marked_points: {marked_points}")
     return loss, denoised, loss_rec, loss_inv, marked_points
 
 def self2self(noise_images, model, device, dropout_rate):
