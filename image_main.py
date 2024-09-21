@@ -7,7 +7,7 @@ from pathlib import Path
 from tqdm import tqdm
 from skimage.metrics import structural_similarity as sim
 
-import config as config
+import config_test as config
 
 from models.N2N_Unet import N2N_Unet_DAS, N2N_Orig_Unet, Cut2Self, U_Net_origi, U_Net, TestNet
 from metric import Metric
@@ -244,8 +244,9 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            if config.methodes[methode]['sheduler']:
-                scheduler.step()
+            #scheduler was for use in n2same but i have problems with this implementation
+            #if config.methodes[methode]['sheduler']:
+                #scheduler.step()
 
         #log Data
         original_psnr_batch = Metric.calculate_psnr(original, denoised)

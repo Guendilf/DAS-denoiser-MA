@@ -46,7 +46,7 @@ class Mask:
             mask (tensor): masked pixel are set to 1 (b,c,w,h)
             masked pixel (int): pixel that should be masked
         """
-        total_area = img.shape[-1] * img.shape[-2]
+        total_area = img.shape[-1] * img.shape[-2] * img.shape[-3]
         #if amount of pixel shoulld be masked
         if isinstance(maskamount, int):
             mask_percentage = maskamount*1/total_area
@@ -70,6 +70,7 @@ class Mask:
             return mask, torch.count_nonzero(mask)
         
         else:
+            print("mask_random else teil")
             for _ in range(img.shape[0]):
                 mask = torch.zeros(img.shape[-1], img.shape[-2], dtype=torch.float32)
                 for _ in range(num_regions):        # generiere eine maske
