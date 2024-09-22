@@ -1,4 +1,4 @@
-import sys
+import time
 import numpy as np
 import statistics
 import os
@@ -14,33 +14,56 @@ from torch.utils.tensorboard import SummaryWriter
 import io
 from PIL import Image
 
-from import_files import log_files, gerate_spezific_das
+from import_files import gerate_spezific_das, log_files, mask_random
 from import_files import U_Net
-from import_files import n2nU_net
+from unet_copy import UNet as unet
 from import_files import SyntheticNoiseDAS
+from import_files import Direct_translation_SyntheticDAS
 from scipy import signal
 
-epochs = 100 #2.000 epochen - 1 Epoche = 3424 samples
-batchsize = 24
-dasChanels = 96
-timesamples = 128 #oder 30 sekunden bei samplingrate von 100Hz -> ?
-lr = 0.001
-lr_end = 0.00001
-# Define the lambda function for the learning rate scheduler
-lambda_lr = lambda epoch: lr_end + (lr - lr_end) * (1 - epoch / epochs)
+#tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\Code\DAS-denoiser-MA\runs"      #PC
+#tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\runs"                           #vom Server
+#tensorboard --logdir="C:\Users\LaAlexPi\Documents\01_Uni\MA\runs\"                         #Laptop
 
+epochs = 1 #2.000 epochen - 1 Epoche = 3424 samples
+batchsize = 32
+dasChanelsTrain = 11
+dasChanelsVal = 11
+dasChanelsTest = 11
+lr = 0.0001
 batchnorm = False
 save_model = False
 
-gauge_length = 19.2 #n2n uses 1
+gauge_length = 19.2 #30 for synthhetic?
 snr = (-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
 slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
+sampling = 50.0
 
 modi = 0 #testing diffrent setups
 
 
-def reconstruct(model, noise_images):
-    return model(noise_images)
+"""
+TODO:
+- swuish activation funktion with ??? parameter     -> Sigmoid Linear Unit (SiLU) function
+- gauge = 19,2
+- 50 Hz frequenz
+"""
+def visualise_spectrum(spectrum_noise, spectrum_denoised):
+    fig, axes = plt.subplots(nrows=11, figsize=(10, 20))
+    # Iteriere durch jede w-Schicht (zweite Dimension, hier 11)
+    for i in range(11):
+        axes[i].plot(torch.abs(spectrum_noise[0, 0, i, :]).cpu().detach().numpy(), label='Noise Spectrum')
+        axes[i].plot(torch.abs(spectrum_denoised[0, 0, i, :]).cpu().detach().numpy(), label='Denoised Spectrum')
+        axes[i].set_title(f'Spectrum - Layer {i+1}')
+        axes[i].set_xlabel('Frequency')
+        axes[i].set_ylabel('Amplitude')
+        axes[i].legend()
+
+    plt.tight_layout()
+    #plt.show()
+def reconstruct(model, device, noise_images):
+    denoised = model(noise_images)
+    return denoised
 
 #get bottom line for time-axis
 def set_bottom_line(ax):
@@ -158,9 +181,57 @@ def generate_das_plot(clean_das, all_noisy_waves, all_denoised_waves, amps, snr_
     #plt.show()
     return fig
 
+def generate_das_plot3(clean_das, all_noisy_waves, all_denoised_waves, amps, snr_indices):
+    # Übertrage die Daten auf die CPU
+    clean_das_cpu = clean_das.to('cpu').detach().numpy()
+    noisy_waves_cpu = all_noisy_waves.to('cpu').detach().numpy()
+    denoised_waves_cpu = all_denoised_waves.to('cpu').detach().numpy()
+
+    # Berechne das globale Minimum und Maximum der Daten für eine einheitliche Farbgebung
+    vmin = -1e-08 #clean_das_cpu.min() = -0.00000013847445 or -1.3847445e-07
+    vmax = 1e-08 #clean_das_cpu.max() = 1.0335354e-07
+    vmin = np.percentile(clean_das_cpu, 9)
+    vmax = np.percentile(clean_das_cpu, 91)
+
+    # Erstelle das Grid (3 Spalten und 8 Zeilen)
+    fig, axs = plt.subplots(3, 3, figsize=(15, 10), gridspec_kw={'width_ratios': [1, 1, 1], 'height_ratios': [1, 1, 1]})
+
+    # Spalte 1: Clean DAS (mittig, über vier Zeilen)
+    axs[1, 0].imshow(clean_das_cpu, aspect='auto', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
+    axs[1, 0].set_title('Clean DAS')
+    #remove_frame(axs[1, 0])  # Entferne den Rahmen
+    #set_bottom_line(axs[1, 0])  # Zeige nur die untere Linie
+    #axs[1, 0].yaxis.set_visible(False)  # Deaktiviere y-Achsen für das mittige Diagramm
+    axs[1, 0].set_xlabel('Time')
+    axs[1, 0].set_ylabel('Channel Index')
+    # Leere Felder in der ersten Spalte
+    axs[0, 0].set_axis_off()  # Oberes Feld leer
+    axs[2, 0].set_axis_off()  # Unteres Feld leer
+    
+    # Spalte 2: Noisy DAS (SNR 0.1 und SNR 10 in Zeilen)
+    for i, snr_idx in enumerate(snr_indices):
+        axs[i, 1].imshow(noisy_waves_cpu[i] / amps[i].item(), aspect='auto', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
+        axs[i, 1].set_title(f'Denoised DAS (SNR={snr_idx})')
+        if i == 2:
+            axs[i, 1].set_xlabel('Time')
+            axs[i, 1].set_ylabel('Channel Index')
+
+    # Spalte 3: Denoised DAS (SNR 0.1 und SNR 10 in Zeilen)
+    for i, snr_idx in enumerate(snr_indices):
+        axs[i, 2].imshow(denoised_waves_cpu[i] / amps[i].item(), aspect='auto', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
+        axs[i, 2].set_title(f'Denoised DAS (SNR={snr_idx})')
+        if i == 2:# Für den untersten Plot die Linie und die Beschriftung anzeigen
+            axs[i, 2].set_xlabel('Time')
+            axs[i, 2].set_ylabel('Channel Index')
+
+    # Lege das Layout fest und zeige den Plot
+    plt.tight_layout()
+    #plt.show()
+    return fig
+
 def save_example_wave(eq_strain_rates_test, model, device, writer, epoch):
     wave = eq_strain_rates_test[6][4200:6248]
-    clean_das = gerate_spezific_das(wave, nx=300, nt=2048, eq_slowness=1/(19.2*50.0), gauge=19.2, fs=50.0)
+    clean_das = gerate_spezific_das(wave, nx=300, nt=2048, eq_slowness=1/(gauge_length*sampling), gauge=gauge_length, fs=sampling)
     clean_das = clean_das.to(device).type(torch.float32)
 
     SNRs = [0.1, 1, 10]
@@ -175,14 +246,15 @@ def save_example_wave(eq_strain_rates_test, model, device, writer, epoch):
         noisy_das = clean_das * amp + noise
         amps.append(amp)
         noisy_das = noisy_das.unsqueeze(0).unsqueeze(0).to(device).float()
-        denoised_waves = reconstruct(model, device, noisy_das)
+        denoised_waves = reconstruct(model, device, noisy_das/noisy_das.std())
         all_noise_das.append(noisy_das.squeeze(0).squeeze(0))
-        all_denoised_das.append(denoised_waves.squeeze(0).squeeze(0))
+        all_denoised_das.append((denoised_waves*noisy_das.std()).squeeze(0).squeeze(0))
     all_noise_das = torch.stack(all_noise_das)
     all_denoised_das = torch.stack(all_denoised_das)
     amps = torch.stack(amps)
     wave_plot_fig = generate_wave_plot(clean_das, all_noise_das, all_denoised_das, amps, SNRs)
-    das_plot_fig = generate_das_plot(clean_das, all_noise_das, all_denoised_das, amps, snr_indices=[0,2])
+    #das_plot_fig = generate_das_plot(clean_das, all_noise_das, all_denoised_das, amps, snr_indices=[0,2])
+    das_plot_fig = generate_das_plot3(clean_das, all_noise_das, all_denoised_das, amps, snr_indices=SNRs)
 
     buf = io.BytesIO()
     wave_plot_fig.savefig(buf, format='png')
@@ -209,16 +281,46 @@ def save_example_wave(eq_strain_rates_test, model, device, writer, epoch):
         #calculatte scaled variance (https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277/1?file=26674421) In[13]
         sv = torch.mean((all_noise_das[i] - all_denoised_das[i])**2, dim=-1) / torch.mean((all_noise_das[i])**2, dim=-1)
         sv = torch.mean(sv)
+        #fast fourier für Spektrum:
+        spectrum_noise = torch.fft.rfft(all_noise_das[i])
+        spectrum_denoised = torch.fft.rfft(all_denoised_das[i])
+        spectrum_noise_abs = torch.abs(spectrum_noise)  #max amplitude
+        spectrum_denoised_abs = torch.abs(spectrum_denoised)
+        log_spectrum_noise = torch.log(spectrum_noise_abs + 1e-10)  # log(0) möglich
+        log_spectrum_denoised = torch.log(spectrum_denoised_abs + 1e-10)
+        lsd = torch.mean((log_spectrum_noise - log_spectrum_denoised) ** 2)
+        #Koherenz der Frequenzen TODO: ist das Sinnvoll?
+        cross_spectrum = spectrum_noise * torch.conj(spectrum_denoised)
+        power_spectrum_a = spectrum_noise_abs ** 2
+        power_spectrum_b = spectrum_denoised_abs ** 2
+        coherence = (torch.abs(cross_spectrum) ** 2) / (power_spectrum_a * power_spectrum_b + 1e-10)
+        coherence = torch.mean(coherence)
+
+
         writer.add_scalar(f'Image PSNR of SNR={snr}', psnr, global_step=epoch)
         writer.add_scalar(f'Image Scaled Variance of SNR={snr}', sv, global_step=epoch)
+        writer.add_scalar(f'Image LSD of SNR={snr}', lsd, global_step=epoch)
+        writer.add_scalar(f'Image Korrelation of SNR={snr}', coherence, global_step=epoch)
+    
 
-def calculate_loss(noise_image, noise_image2, model):
+def calculate_loss(noise_image, model, batch_idx, device, lambda_inv=2):
+    mask, marked_points = mask_random(noise_image, maskamount=0.005, mask_size=(1,1))
+    #new
+    #_,_,mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-2],noise_images.shape[-1]), 0.5, augment=False)
+    marked_points = torch.sum(mask)
+
+    mask = mask.to(device)
+    masked_input = (1-mask) * noise_image + (torch.normal(0, 0.2, size=noise_image.shape).to(device) * mask)
+    
     denoised = model(noise_image)
-    #loss = 1/noise_image.shape[0] * torch.sum((denoised-noise_image2)**2)
-    loss_function = torch.nn.MSELoss()
-    return loss_function(denoised, noise_image2), denoised
+    denoised_mask = model(masked_input)
+    mse = torch.nn.MSELoss()
+    loss_rec = torch.mean((denoised-noise_image)**2) # mse(denoised, noise_images)
+    loss_inv = torch.sum(mask*(denoised-denoised_mask)**2)# mse(denoised, denoised_mask)
+    loss = loss_rec + lambda_inv * 1 * (loss_inv/marked_points).sqrt()
+    return loss, denoised, denoised_mask #J = count of maked_points
 
-def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, store_path, bestPsnr):
+def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path):
     global modi
     loss_log = []
     psnr_log = []
@@ -226,29 +328,27 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
     lsd_log = []
     coherence_log = []
     save_on_last_epoch=True
-    for batch_idx, (noise_images, clean, noise, std, amp, noise_images2, noise2, std2) in enumerate(dataLoader):
+    for batch_idx, (noise_images, clean, noise, std, amp, _, _, _) in enumerate(dataLoader):
         clean = clean.to(device).type(torch.float32)
         noise_images = noise_images.to(device).type(torch.float32)
-        noise_images2 = noise_images2.to(device).type(torch.float32)
         std = std.to(device).type(torch.float32)
-        std2 = std2.to(device).type(torch.float32)
-
+        amp = amp.to(device).type(torch.float32)
         if mode == "train":
             model.train()
-            loss, denoised = calculate_loss(noise_images, noise_images2, model)
+            loss, denoised, mask_orig = calculate_loss(noise_images, model, batch_idx, device)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            #scheduler.step()
-
-            writer.add_scalar('Learning Rate N2N DAS', scheduler.get_last_lr()[0], global_step=epoch * len(dataLoader) + batch_idx)
         else:
             with torch.no_grad():
                 model.eval()
-                loss, denoised = calculate_loss(noise_images, noise_images2, model)      
+                loss, denoised, mask_orig = calculate_loss(noise_images, model, batch_idx, device)
+                #J-Invariant reconstruction
+                denoised = reconstruct(model, device, noise_images)
+        #norming
+        noise_images *= std
+        denoised *= std
 
-        mask_orig = torch.zeros_like(clean).to(device)
-        mask_orig[:,:,2,:] = 1
         #calculate psnr
         max_intensity=clean.max()-clean.min()
         mse = torch.mean((clean-denoised)**2)
@@ -256,7 +356,6 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         #calculatte scaled variance (https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277/1?file=26674421) In[13]
         sv = torch.mean((noise_images - denoised)**2, dim=-1) / torch.mean((noise_images)**2, dim=-1)
         sv = torch.mean(sv)#, dim=-1)
-
         #calculate Log-Spectral Distance (LSD)
         #fast fourier für Spektrum:
         spectrum_noise = torch.fft.rfft(noise_images)
@@ -284,9 +383,7 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
     return loss_log, psnr_log, scaledVariance_log, lsd_log, coherence_log
 
 def main(argv=[]):
-    global dasChanels
-    global timesamples
-    print("Starte Programm n2noise!")
+    print("Starte Programm n2self!")
     if torch.cuda.device_count() == 1:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
@@ -304,10 +401,14 @@ def main(argv=[]):
     eq_strain_rates_test = np.load(strain_test_dir)
     eq_strain_rates_test = eq_strain_rates_test / eq_strain_rates_test.std(axis=0)
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=50.0, size=10016)
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=50.0, size=992)
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanels, nt=timesamples, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, fs=50.0, size=992)
-
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=300*batchsize)
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
+    
+    #dataset = Direct_translation_SyntheticDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=10016, mode="train")
+    #dataset_validate = Direct_translation_SyntheticDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="val")
+    #dataset_test = Direct_translation_SyntheticDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=992, mode="test")
+    
     if len(argv) == 1:
         store_path_root = argv[0]
     else:
@@ -318,36 +419,39 @@ def main(argv=[]):
     best_sv = [-1,-1,-1] #lower = better
     best_lsd = [-1,-1,-1] #lower = better (Ruaschsignal ähnlich zur rekonstruction im Frequenzbereich)
     best_coherence = [-1,-1,-1] #1 = perfekte Korrelation zwischen Rauschsignale und Rekonstruktion; 0 = keine Korrelation
-    global modi
-    for i in range(2):
-        
-        store_path = Path(os.path.join(store_path_root, f"n2noise-{modi}"))
+
+    for i in range(1):
+
+        store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
         tmp = Path(os.path.join(store_path, "tensorboard"))
         tmp.mkdir(parents=True, exist_ok=True)
         tmp = Path(os.path.join(store_path, "models"))
         tmp.mkdir(parents=True, exist_ok=True)
 
-        print(f"n2noise {modi}")
+        print("n2self")
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
-        if modi == 0:
-            model = U_Net(1, first_out_chanel=24, scaling_kernel_size=(1,2), conv_kernel=5, batchNorm=batchnorm).to(device)
-        else:
-            model = n2nU_net(1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=batchnorm).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_lr)
 
+        if modi >= 0:
+            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
+            #model = unet(n_channels=1, feature=4, bilinear=True).to(device)
+        #else:
+            #model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
+            #model = unet(n_channels=1, feature=4, bilinear=False).to(device)
+        
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        """
+        if method_params['sheduler']:
+            lr_lambda = get_lr_lambda(method_params['lr'], method_params['changeLR_steps'], method_params['changeLR_rate'])
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+        """
         writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
 
-        bestPsnrTrain=0
-        bestPsnrVal=0
-        bestPsnrTest=0
         for epoch in tqdm(range(epochs)):
 
-            loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, scheduler, mode="train", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrTrain)
-            scheduler.step()
+            loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path)
 
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
             writer.add_scalar('PSNR Train', statistics.mean(psnr), epoch)
@@ -355,7 +459,7 @@ def main(argv=[]):
             writer.add_scalar('LSD Train', statistics.mean(lsd_log), epoch)
             writer.add_scalar('Korelation Train', statistics.mean(coherence_log), epoch)
 
-            loss_val, psnr_val, scaledVariance_log_val, lsd_log_val, coherence_log_val = train(model, device, dataLoader_validate, optimizer, scheduler, mode="val", writer=writer, epoch=epoch, store_path=store_path, bestPsnr=bestPsnrVal) 
+            loss_val, psnr_val, scaledVariance_log_val, lsd_log_val, coherence_log_val = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, store_path=store_path) 
 
             writer.add_scalar('Loss Val', statistics.mean(loss_val), epoch)
             writer.add_scalar('PSNR Val', statistics.mean(psnr_val), epoch)
@@ -391,11 +495,10 @@ def main(argv=[]):
                 best_coherence[0] = statistics.mean(coherence_log)
             if statistics.mean(coherence_log_val) > best_coherence[1]:
                 best_coherence[1] = statistics.mean(coherence_log_val)
-
-        loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test = train(model, device, dataLoader_test, optimizer, scheduler, mode="test", writer=writer, epoch=0, store_path=store_path, bestPsnr=bestPsnrTest)
+                
+        loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, store_path=store_path)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)
         writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 0)
-        writer.add_scalar('Scaled Variance Test', statistics.mean(scaledVariance_log_test), 0)
         writer.add_scalar('LSD Test', statistics.mean(lsd_log_test), 0)
         writer.add_scalar('Korelation Test', statistics.mean(coherence_log_test), 0)
         model_save_path = os.path.join(store_path, "models", "last-model.pth")
@@ -405,7 +508,8 @@ def main(argv=[]):
         best_lsd[2] = statistics.mean(lsd_log_test)
         best_coherence[2] = statistics.mean(coherence_log_test)
         modi += 1
-    print("fertig")
+    print("n2self fertig")
+    return
 
 if __name__ == '__main__':
     main()

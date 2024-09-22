@@ -391,3 +391,65 @@ def log_files():
             shutil.copyfile(os.path.join(current_path2, file), os.path.join(store_path2, file))
     print(f"python files are stored. Path: {store_path}")
     return store_path
+
+
+#from Mask.py
+def mask_random(img, maskamount, mask_size=(4,4)):
+    """
+    TODO: is not saturated sampling (but in if section for mask_size=(1,1)) -> the same Pixel could be chosen multiple times -> in one picture there is less then required amount of masking
+    Args
+        img (tensor): Noisy images in form of (b,c,w,h) only for shape extraction
+        maskamount (number): float for percentage masking; int for area amount masking
+        mask_size (tupel): area that will be masked (w,h)
+    Return
+        mask (tensor): masked pixel are set to 1 (b,c,w,h)
+        masked pixel (int): pixel that should be masked
+    """
+    total_area = img.shape[-1] * img.shape[-2] * img.shape[-3]
+    #if amount of pixel shoulld be masked
+    if isinstance(maskamount, int):
+        mask_percentage = maskamount*1/total_area
+    else:
+        mask_percentage = maskamount
+        maskamount = int(np.round(mask_percentage*total_area/1))
+        if maskamount == 0:
+            maskamount = 1
+    mask_area = mask_size[0] * mask_size[1]
+    num_regions = int(np.round((mask_percentage * total_area) / mask_area))
+    if num_regions == 0:
+        num_regions = 1
+    masks = []
+    #fast methode for pixel only "select_random_pixel" or even with nn.functional.dropout
+    #saturated sampling ensured through "torch.randperm" in select_random_pixels
+    if mask_size == (1,1):
+        for _ in range(img.shape[0]):
+            mask = select_random_pixels((img.shape[1], img.shape[2],img.shape[3]), maskamount)
+            masks.append(mask)
+        mask = torch.stack(masks, dim=0)
+        return mask, torch.count_nonzero(mask)
+    
+    else:
+        print("maske gefährlich, weil nicht gecheckt")
+        for _ in range(img.shape[0]):
+            mask = torch.zeros(img.shape[-1], img.shape[-2], dtype=torch.float32)
+            for _ in range(num_regions):        # generiere eine maske
+                x = torch.randint(0, img.shape[-1] - mask_size[1] + 1, (1,))
+                y = torch.randint(0, img.shape[-2] - mask_size[0] + 1, (1,))
+                mask[x:x+mask_size[0], y:y+mask_size[1]] = 1
+            masks.append(mask)
+    
+    mask = torch.stack(masks, dim=0)
+    mask = mask.unsqueeze(1)  # (b, 1, w, h)
+    mask = mask.expand(-1, img.shape[1], -1, -1) # (b, 3, w, h)
+    return mask, torch.count_nonzero(mask)
+
+def select_random_pixels(image_shape, num_masked_pixels):
+    num_pixels = image_shape[0] * image_shape[1] * image_shape[2]
+    # Erzeuge zufällige Indizes für die ausgewählten maskierten Pixel
+    masked_indices = torch.randperm(num_pixels)[:num_masked_pixels]
+    mask = torch.zeros(image_shape[0], image_shape[1], image_shape[2])
+    # Pixel in Maske auf 1 setzen
+    mask.view(-1)[masked_indices] = 1
+    # Mache für alle Chanels
+    #mask = mask.unsqueeze(0)
+    return mask
