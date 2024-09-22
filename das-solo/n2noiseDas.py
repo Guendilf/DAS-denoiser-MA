@@ -20,7 +20,7 @@ from import_files import n2nU_net
 from import_files import SyntheticNoiseDAS
 from scipy import signal
 
-epochs = 100 #2.000 epochen - 1 Epoche = 3424 samples
+epochs = 500 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 24
 dasChanels = 96
 timesamples = 128 #oder 30 sekunden bei samplingrate von 100Hz -> ?
