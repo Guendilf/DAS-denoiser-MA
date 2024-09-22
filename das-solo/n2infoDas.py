@@ -487,7 +487,7 @@ def main(argv=[]):
         tmp = Path(os.path.join(store_path, "models"))
         tmp.mkdir(parents=True, exist_ok=True)
 
-        print("n2self")
+        print("n2info")
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)

@@ -175,7 +175,7 @@ def save_example_wave(eq_strain_rates_test, model, device, writer, epoch):
         noisy_das = clean_das * amp + noise
         amps.append(amp)
         noisy_das = noisy_das.unsqueeze(0).unsqueeze(0).to(device).float()
-        denoised_waves = reconstruct(model, device, noisy_das)
+        denoised_waves = reconstruct(model, noisy_das)
         all_noise_das.append(noisy_das.squeeze(0).squeeze(0))
         all_denoised_das.append(denoised_waves.squeeze(0).squeeze(0))
     all_noise_das = torch.stack(all_noise_das)
