@@ -15,7 +15,7 @@ import io
 from PIL import Image
 
 from import_files import gerate_spezific_das, log_files, bandpass
-from import_files import U_Net
+from import_files import U_Net, Sebastian_N2SUNet
 from unet_copy import UNet as unet
 from import_files import SyntheticNoiseDAS
 from import_files import Direct_translation_SyntheticDAS
@@ -27,14 +27,15 @@ from scipy import signal
 
 epochs = 500 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 32
-dasChanelsTrain = 11
-dasChanelsVal = 11
-dasChanelsTest = 11
+dasChanelsTrain = 11*4
+dasChanelsVal = 11*4
+dasChanelsTest = 11*4
+maskChanels = 4
 lr = 0.0001
 batchnorm = False
 save_model = False
 
-gauge_length = 19.2 #30 for synthhetic?
+gauge_length = 4#19.2
 snr = (-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
 slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
 sampling = 50.0
@@ -63,7 +64,7 @@ def visualise_spectrum(spectrum_noise, spectrum_denoised):
     #plt.show()
 def reconstruct(model, device, noise_images):
     buffer = torch.zeros_like(noise_images).to(device)
-    training_size = 11 #how much chanels were used for training
+    training_size = dasChanelsTrain # 11 how much chanels were used for training
     num_chunks = noise_images.shape[2] // training_size
     left_chunks = noise_images.shape[2] % training_size
     for chunk_idx in range(num_chunks):
@@ -71,19 +72,22 @@ def reconstruct(model, device, noise_images):
         start_idx = chunk_idx * training_size
         chunk = noise_images[:, :, start_idx:start_idx+training_size, :]
         for i in range(training_size):
+            """
             mask = torch.zeros_like(chunk).to(device)
             mask[:, :, i, :] = 1  # Mask out the i-th channel
+            """
+            mask = channelwise_mask(chunk, width=maskChanels, indices=np.arange(0, training_size, maskChanels))
             input_image = chunk * (1 - mask)
             j_denoised = model(input_image)
             buffer[:, :, start_idx:start_idx+training_size, :] += j_denoised * mask
     # calculate the left overs when chanels are not a multiplicative of training_size
     for i in range(left_chunks):
-        chunk = noise_images[:, :, noise_images.shape[2]-11:, :]
+        chunk = noise_images[:, :, noise_images.shape[2]-dasChanelsTrain:, :]
         mask = torch.zeros_like(chunk).to(device)
         mask[:, :, training_size-i-1, :] = 1
         input_image = chunk * (1 - mask)
         j_denoised = model(input_image)
-        buffer[:, :, noise_images.shape[2]-11:, :] += j_denoised * mask
+        buffer[:, :, noise_images.shape[2]-dasChanelsTrain:, :] += j_denoised * mask
     return buffer
 
 #get bottom line for time-axis
@@ -323,15 +327,31 @@ def save_example_wave(eq_strain_rates_test, model, device, writer, epoch):
         writer.add_scalar(f'Image LSD of SNR={snr}', lsd, global_step=epoch)
         writer.add_scalar(f'Image Korrelation of SNR={snr}', coherence, global_step=epoch)
     
+def channelwise_mask(x, width=1, indices=None):
+
+    batch_size, _, nx, nt = x.shape
+    mask = torch.ones_like(x)
+    u = int(np.floor(width/2))
+    l = int(np.ceil(width/2))
+    if indices is None:
+        indices = torch.randint(u, nx - l, (batch_size,))
+    for i in range(batch_size):
+        mask[i, :, indices[i]-u:indices[i]+l] = 0
+    
+    return (1-mask)
 
 def calculate_loss(noise_image, model, batch_idx):
     #masked_noise_image, mask = Mask.n2self_mask(noise_image, batch_idx)
+    """
     mask = torch.zeros_like(noise_image).to(noise_image.device)
     for i in range(mask.shape[0]):
         mask[i, :, np.random.randint(0, mask.shape[2]), :] = 1
+    """
+    mask = channelwise_mask(noise_image, width=maskChanels)
     masked_noise_image = (1-mask) * noise_image
     denoised = model(masked_noise_image)
-    return torch.nn.MSELoss()(denoised*(mask), noise_image*(mask)), denoised, mask
+    #loss_my = torch.nn.MSELoss()(denoised*(mask), noise_image*(mask))
+    return torch.mean(torch.mean(mask * (denoised - noise_image)**2, dim=-1)), denoised, mask
 
 def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path):
     global modi
@@ -407,12 +427,12 @@ def main(argv=[]):
 
     print("lade Datensätze ...")
     eq_strain_rates = np.load(strain_train_dir)
-    eq_strain_rates = eq_strain_rates / eq_strain_rates.std(axis=0) #nomralize (like Z.212 from the paper)
+    eq_strain_rates = eq_strain_rates / eq_strain_rates.std(axis=-1, keepdims=True) #nomralize (like Z.212 from the paper)
     split_idx = int(0.8 * len(eq_strain_rates))
     eq_strain_rates_train = torch.tensor(eq_strain_rates[:split_idx])
     eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
     eq_strain_rates_test = np.load(strain_test_dir)
-    eq_strain_rates_test = eq_strain_rates_test / eq_strain_rates_test.std(axis=0)
+    eq_strain_rates_test = eq_strain_rates_test / eq_strain_rates_test.std(axis=-1, keepdims=True)
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
     dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=300*batchsize)
     dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
@@ -448,7 +468,8 @@ def main(argv=[]):
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
 
         if modi >= 0:
-            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
+            #model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
+            model = Sebastian_N2SUNet(1,1,4).to(device)
             #model = unet(n_channels=1, feature=4, bilinear=True).to(device)
         #else:
             #model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
@@ -463,7 +484,7 @@ def main(argv=[]):
         writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
 
         for epoch in tqdm(range(epochs)):
-
+            save_example_wave(eq_strain_rates_test, model, device, writer, epoch)
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path)
 
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
@@ -515,7 +536,7 @@ def main(argv=[]):
         writer.add_scalar('Scaled Variance Test', statistics.mean(scaledVariance_log_test), 0)
         writer.add_scalar('LSD Test', statistics.mean(lsd_log_test), 0)
         writer.add_scalar('Korelation Test', statistics.mean(coherence_log_test), 0)
-        model_save_path = os.path.join(store_path, "models", "last-model.pth")
+        model_save_path = os.path.join(store_path, "models", f"last-model-n2self{modi}.pth")
         torch.save(model.state_dict(), model_save_path)
         best_psnr[2] = statistics.mean(psnr_test)
         best_sv[2] = statistics.mean(scaledVariance_log_test)

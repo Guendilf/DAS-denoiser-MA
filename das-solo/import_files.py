@@ -246,10 +246,91 @@ def layer_init(layer, std=0.1, bias_const=0.0):
         nn.init.orthogonal_(layer.weight)
         nn.init.constant_(layer.bias, 0)
 
+def orthogonal_init(module):
+    if isinstance(module, (nn.Conv2d,)):
+        nn.init.orthogonal_(module.weight)
+        if module.bias is not None:
+            nn.init.zeros_(module.bias)
+class Sebastian_N2SUNet(nn.Module):
+
+    def __init__(self, in_channels, out_channels, hidden_dim=4):
+        super().__init__()
+
+        self.inconv = Sebastian_ConvBlock2(in_channels, hidden_dim, hidden_dim)
+
+        self.down1 = Sebastian_Down2(hidden_dim, 2*hidden_dim)
+        self.down2 = Sebastian_Down2(2*hidden_dim, 4*hidden_dim)
+        self.down3 = Sebastian_Down2(4*hidden_dim, 8*hidden_dim)
+        self.down4 = Sebastian_Down2(8*hidden_dim, 16*hidden_dim)
+
+        self.up1 = Sebastian_Up2(16*hidden_dim, 8*hidden_dim)
+        self.up2 = Sebastian_Up2(8*hidden_dim, 4*hidden_dim)
+        self.up3 = Sebastian_Up2(4*hidden_dim, 2*hidden_dim)
+        self.up4 = Sebastian_Up2(2*hidden_dim, hidden_dim)
+
+        self.outconv = nn.Conv2d(hidden_dim, out_channels, kernel_size=(3, 5), padding='same') #(1, 2) #(3, 5)
+
+        self.apply(orthogonal_init)
+
+    def forward(self, x):    
+
+        x0 = self.inconv(x)
+
+        x1 = self.down1(x0)
+        x2 = self.down2(x1)
+        x3 = self.down3(x2)
+        x4 = self.down4(x3)
+
+        x = self.up1(x4, x3)
+        x = self.up2(x, x2)
+        x = self.up3(x, x1)
+        x = self.up4(x, x0)
+
+        x = self.outconv(x)
+
+        return x
+class Sebastian_Down2(nn.Module):
+        
+        def __init__(self, in_channels, out_channels):
+            super().__init__()
+            self.pool = nn.MaxPool2d((1, 4), stride=(1, 1))
+            w = torch.tensor([1., 3., 3., 1.]) / 8.
+            self.w = nn.Parameter(w[None, None, None, :].repeat((in_channels, 1, 1, 1)), requires_grad=False)
+            self.conv = Sebastian_ConvBlock2(in_channels, out_channels, out_channels)
+    
+        def forward(self, x):
+            x = self.pool(x)
+            x = nn.functional.conv2d(x, weight=self.w, stride=(1, 4), padding=(0, 2), groups=x.shape[1])
+            x = self.conv(x)
+            return x
+class Sebastian_Up2(nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.up = nn.Upsample(scale_factor=(1, 4), mode='bilinear')
+        self.conv = Sebastian_ConvBlock2(in_channels+out_channels, out_channels, out_channels)
+
+    def forward(self, x1, x2):
+        x1 = self.up(x1)
+        x = torch.cat([x1, x2], dim=1)
+        return self.conv(x)
+class Sebastian_ConvBlock2(nn.Module):
+    
+    def __init__(self, in_channels, out_channels, hidden_channels):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Conv2d(in_channels, hidden_channels, kernel_size=(3, 5), padding='same'),#(1, 2) #(3, 5)
+            nn.SiLU(),
+            nn.Conv2d(hidden_channels, out_channels, kernel_size=(3, 5), padding='same'),
+            nn.SiLU(),
+        )
+
+    def forward(self, x):
+        return self.layers(x)
 
 class SyntheticNoiseDAS(Dataset):
     def __init__(self, eq_strain_rates, 
-                 nx=11, nt=2048, eq_slowness=(1e-4, 5e-3), log_SNR=(-2,4),  #slownes = 0.0001 - 0.005
+                 nx=11, nt=2048, eq_slowness=(1e-4, 5e-3), log_SNR=(-2,4),
                  gauge=4, fs=50.0, size=1000):
         self.eq_strain_rates = eq_strain_rates / eq_strain_rates.std(dim=-1, keepdim=True)
         self.nx = nx
@@ -283,10 +364,10 @@ class SyntheticNoiseDAS(Dataset):
         else:
             snr_sample = self.log_SNR
         snr = 10 ** snr_sample
+        
         amp = 2 * np.sqrt(snr) / torch.abs(eq_das + 1e-10).max()
         eq_das *= amp
 
-        # 1-10 Hz filtered Gaussian white noise
         gutter = 100
         noise = np.random.randn(self.nx, self.nt + 2*gutter)
         noise = torch.from_numpy(bandpass(noise, 1.0, 10.0, self.fs, gutter).copy())
@@ -296,9 +377,9 @@ class SyntheticNoiseDAS(Dataset):
         sample = eq_das + noise
         sample2 = eq_das + noise2
         scale = sample.std(dim=-1, keepdim=True)
-        scale2 = sample2.std(dim=-1, keepdim=True) #only for return
+        scale2 = sample2.std(dim=-1, keepdim=True)
         sample /= scale
-        sample2 /= scale
+        sample2 /= scale2
                 
         return sample.unsqueeze(0), eq_das.unsqueeze(0), noise.unsqueeze(0), scale.unsqueeze(0), amp, sample2.unsqueeze(0), noise2.unsqueeze(0), scale2.unsqueeze(0)
 
