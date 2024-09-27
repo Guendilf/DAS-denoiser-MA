@@ -27,10 +27,11 @@ from scipy import signal
 
 epochs = 500 #2.000 epochen - 1 Epoche = 3424 samples
 batchsize = 32
-dasChanelsTrain = 11*4
-dasChanelsVal = 11*4
-dasChanelsTest = 11*4
-maskChanels = 4
+maskChanels = 1
+dasChanelsTrain = 11*maskChanels
+dasChanelsVal = 11*maskChanels
+dasChanelsTest = 11*maskChanels
+
 lr = 0.0001
 batchnorm = False
 save_model = False
@@ -76,7 +77,7 @@ def reconstruct(model, device, noise_images):
             mask = torch.zeros_like(chunk).to(device)
             mask[:, :, i, :] = 1  # Mask out the i-th channel
             """
-            mask = channelwise_mask(chunk, width=maskChanels, indices=np.arange(0, training_size, maskChanels))
+            mask = channelwise_mask(chunk, width=maskChanels, indices=np.full(chunk.shape[0], i))
             input_image = chunk * (1 - mask)
             j_denoised = model(input_image)
             buffer[:, :, start_idx:start_idx+training_size, :] += j_denoised * mask
@@ -129,7 +130,7 @@ def generate_wave_plot(das, noisy_waves, denoised_waves, amps, snrs):
     # 2. Spalte: Verrauschte Wellen plotten
     for i, noisy_wave in enumerate(noisy_waves):
         axs[i, 1].plot(noisy_wave[0]/amps[i].item())
-        axs[i, 1].set_title(f'Noisy Wave (SNR={snrs[i]})')
+        axs[i, 1].set_title(f'Input Wave (SNR={snrs[i]})')
         axs[i, 1].set_ylim(min_wave, max_wave)
         remove_frame(axs[i, 1])  # Entferne den Rahmen
         if i < 2:  # Nur im untersten Plot eine x-Achse anzeigen
@@ -189,7 +190,7 @@ def generate_das_plot(clean_das, all_noisy_waves, all_denoised_waves, amps, snr_
     for i, snr_idx in enumerate(snr_indices):
         ax_noisy = fig.add_subplot(gs[i*4:i*4+4, 1])  # Jeweils zwei Zeilen pro Plot
         ax_noisy.imshow(noisy_waves_cpu[snr_idx] / amps[snr_idx].item(), aspect='auto', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
-        ax_noisy.set_title(f'Denoised DAS (SNR={0.1 if snr_idx == 0 else 10})')
+        ax_noisy.set_title(f'Input DAS (SNR={0.1 if snr_idx == 0 else 10})')
         if i == 1:
             ax_noisy.set_xlabel('Time')
         
@@ -236,7 +237,7 @@ def generate_das_plot3(clean_das, all_noisy_waves, all_denoised_waves, amps, snr
     # Spalte 2: Noisy DAS (SNR 0.1 und SNR 10 in Zeilen)
     for i, snr_idx in enumerate(snr_indices):
         axs[i, 1].imshow(noisy_waves_cpu[i] / amps[i].item(), aspect='auto', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
-        axs[i, 1].set_title(f'Denoised DAS (SNR={snr_idx})')
+        axs[i, 1].set_title(f'Input DAS (SNR={snr_idx})')
         if i == 2:
             axs[i, 1].set_xlabel('Time')
             axs[i, 1].set_ylabel('Channel Index')
@@ -420,7 +421,7 @@ def main(argv=[]):
     if torch.cuda.device_count() == 1:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
-        device = "cuda:3"
+        device = "cuda:0"
     
     strain_train_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
     strain_test_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
