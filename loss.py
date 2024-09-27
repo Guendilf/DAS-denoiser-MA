@@ -45,8 +45,8 @@ def n2score(noise_images, sigma_min, sigma_max, q, device, model, methode): #q=b
     return loss, vectorMap
 
 
-def n2self(noise_image, batch_idx, model):
-    masked_noise_image, mask = Mask.n2self_mask(noise_image, batch_idx)
+def n2self(noise_image, batch_idx, model, radius):
+    masked_noise_image, mask = Mask.n2self_mask(noise_image, batch_idx, grid_size=radius*2, radius=radius)
     denoised = model(masked_noise_image)
     #j_invariant_denoised = n2self_infer_full_image(noise_image, model)  #TODO: weiß noch nicht was das ist und wofür es benutzt wird
     return torch.nn.MSELoss()(denoised*mask, noise_image*mask), denoised, masked_noise_image
@@ -159,7 +159,7 @@ def n2n_loss_for_das(denoised, target):
 
 
 def calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_image2, augmentation=True, 
-                   dropout_rate=0.3, num_patches_per_img=None, num_masked_pixels=8, sigma_info=1):
+                   dropout_rate=0.3, num_patches_per_img=None, num_masked_pixels=8, sigma_info=1, radius=3):
     lr = 0
     ud = 0
     est_sigma_opt = -1
@@ -176,7 +176,7 @@ def calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_i
         if "DAS" in methode:
             loss, denoised, masked_noise_image = n2self_DAS(noise_images, batch_idx, model)
         else:    
-            loss, denoised, masked_noise_image = n2self(noise_images, batch_idx, model)
+            loss, denoised, masked_noise_image = n2self(noise_images, batch_idx, model, radius)
 
     elif "n2void" in methode:
         #normalise Data as in github

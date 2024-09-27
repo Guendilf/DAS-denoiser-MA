@@ -142,7 +142,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
         if mode=="test" or mode =="validate":
             model.eval()
             with torch.no_grad():
-                loss, _, _, _, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate)
+                loss, _, _, _, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, radius=config.methodes[methode]['radius'])
                 (_, _, _, est_sigma_opt) = optional_tuples
                 if "n2noise" in methode:
                     denoised = model (noise_images)            
@@ -171,7 +171,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                 elif "s2self" in methode:
                     denoised = torch.ones_like(noise_images)
                     for i in range(max_Predictions):
-                        _, denoised_tmp, _, _, flip = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate)
+                        _, denoised_tmp, _, _, flip = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, radius=config.methodes[methode]['radius'])
                         (lr, ud, _, _) = flip
                         #denoised_tmp = filp_lr_ud(denoised_tmp, lr, ud)
                         denoised = denoised + denoised_tmp
@@ -240,7 +240,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
         else:
             model.train()
             #original, noise_images are only important if n2void
-            loss, denoised, original, noise_images, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, sigma_info=sigma_info)
+            loss, denoised, original, noise_images, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, sigma_info=sigma_info, radius=config.methodes[methode]['radius'])
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -340,6 +340,7 @@ def main(argv):
     store_path_root = log_files()
     
     print(f"Using {device} device")
+
     
     #for methode in methoden_liste:
     for methode, method_params in config.methodes.items():
@@ -481,6 +482,9 @@ def main(argv):
         writer.add_scalar("PSNR original (bot normed) Test", Metric.avg_list(original_psnr_log_test), 0)
         writer.add_scalar("Loss Test", Metric.avg_list(loss_test), 0)
         writer.add_scalar("Sim Test", Metric.avg_list(similarity_test), 0)
+
+        model_save_path = os.path.join(store_path, "models", f"last-model-{methode}.pth")
+        torch.save(model.state_dict(), model_save_path)
 
         end_results[methode] = [loss[-1], 
                                 bestPsnr, 

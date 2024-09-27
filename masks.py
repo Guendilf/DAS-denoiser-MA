@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from skimage.morphology import disk
 
 
 class Mask:
@@ -87,15 +88,15 @@ class Mask:
         mask = mask.expand(-1, img.shape[1], -1, -1) # (b, 3, w, h)
         return mask, torch.count_nonzero(mask)
 
-    def n2self_mask(noise_image, i, grid_size=3, mode='interpolate', include_mask_as_input=False):       #i= epoch % (width**2  -1)
+    def n2self_mask(noise_image, i, grid_size=3, mode='interpolate', include_mask_as_input=False, radius=3):       #i= epoch % (width**2  -1)
         phasex = i % grid_size
         phasey = (i // grid_size) % grid_size
         mask = n2self_pixel_grid_mask(noise_image[0, 0].shape, grid_size, phasex, phasey)
         mask = mask.to(noise_image.device)
         mask_inv = 1 - mask
-        mask_inv = torch.ones(mask.shape).to(noise_image.device) - mask
         if mode == 'interpolate':
-            masked = n2self_interpolate_mask(noise_image, mask, mask_inv)
+            #masked = n2self_interpolate_mask(noise_image, mask, mask_inv)
+            masked = n2_self_interpolate_radius(noise_image, mask, mask_inv, radius)
         elif mode == 'zero':
             masked = noise_image * mask_inv
         #else:
@@ -261,6 +262,33 @@ def jinv_recon(noise_image, model, grid_size, mode, infer_single_pass, include_m
         net_output = model(net_input)
         acc_tensor = acc_tensor + (net_output * mask).to(noise_image.device)#.cpu()
     return acc_tensor
+
+def n2self_mask_mit_loch_center(radius):
+    kernel = disk(radius).astype(np.float32)
+    kernel[len(kernel) // 2, len(kernel) // 2] = 0  # Setze das Zentrum auf 0
+    return kernel
+
+# Interpolate-Funktion mit dynamischem Kernel
+def n2_self_interpolate_radius(tensor, mask, mask_inv, radius):
+    mask = mask.to(tensor.device)
+    mask_inv = mask_inv.to(tensor.device)
+    
+    # Dynamisch den Kernel mit dem gewünschten Radius generieren
+    kernel_np = n2self_mask_mit_loch_center(radius)
+    kernel_np = kernel_np[np.newaxis, np.newaxis, :, :]  # Zu (1, 1, h, w) formen
+    kernel_tensor = torch.Tensor(kernel_np).to(tensor.device)
+    
+    # Normalisiere den Kernel, sodass die Summe der Werte 1 ist
+    kernel_tensor = kernel_tensor / kernel_tensor.sum()
+
+    # Repliziere den Kernel für jeden Farbkanal (c Kanäle)
+    kernel_tensor = kernel_tensor.repeat(1, tensor.shape[1], 1, 1)
+    
+    # Wende die Faltung an (conv2d)
+    filtered_tensor = torch.nn.functional.conv2d(tensor, kernel_tensor, stride=1, padding=radius)
+    
+    # Wende die Maske an: wo mask == 1 wird interpoliert, wo mask_inv == 1 bleibt der originale Wert
+    return filtered_tensor * mask + tensor * mask_inv
 
 def augment_patch(patch):
     patch = torch.rot90(patch, k=torch.randint(0, 4, (1,)).item(), dims=(1, 2))

@@ -15,37 +15,94 @@ strain_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
 
 #method std. config
 methodes = dict(
-    n2same = dict(
-        lr = 0.0004, #TODO: verringere nachh 5.000 steps um 0.5
-        batchNorm = True,
+    n2self1 = dict(
+        lr = 0.001,
+        batchNorm = False,
         dropout = 0,
         net = 'U_Net',
-        sheduler = False, #war eigentlich True
+        sheduler = False,
+        erweiterung = 'j-invariant',
 
-        skip_first_connection = True,
-        featurLayer = 96,
-        lambda_inv=2,
-        changeLR_steps = 5000,
-        changeLR_rate = -0.5,
+        radius = 1,
+        grid_size = 4,
 
         augmentation = False,
+        lambda_inv=-1,
         dropout_rate=0,
     ),
-    n2info = dict(
-        lr = 0.0001,
-        batchNorm = True,
+    n2self2 = dict(
+        lr = 0.001,
+        batchNorm = False,
         dropout = 0,
         net = 'U_Net',
-        sheduler = False, #war eigentlich True
-        validation_dataset_size = 100,
+        sheduler = False,
+        erweiterung = 'j-invariant',
 
-        featurLayer = 96,
-        predictions = 100, #kmc
-        changeLR_steps = 5000,
-        changeLR_rate = -0.5,
+        radius = 2,
+        grid_size = 4,
 
         augmentation = False,
-        lambda_inv=2,
+        lambda_inv=-1,
+        dropout_rate=0,
+    ),
+    n2self3 = dict(
+        lr = 0.001,
+        batchNorm = False,
+        dropout = 0,
+        net = 'U_Net',
+        sheduler = False,
+        erweiterung = 'j-invariant',
+
+        radius = 3,
+        grid_size = 4,
+
+        augmentation = False,
+        lambda_inv=-1,
+        dropout_rate=0,
+    ),
+    n2self4 = dict(
+        lr = 0.001,
+        batchNorm = False,
+        dropout = 0,
+        net = 'U_Net',
+        sheduler = False,
+        erweiterung = 'j-invariant',
+
+        radius = 4,
+        grid_size = 4,
+
+        augmentation = False,
+        lambda_inv=-1,
+        dropout_rate=0,
+    ),
+    n2self5 = dict(
+        lr = 0.001,
+        batchNorm = False,
+        dropout = 0,
+        net = 'U_Net',
+        sheduler = False,
+        erweiterung = 'j-invariant',
+
+        radius = 5,
+        grid_size = 4,
+
+        augmentation = False,
+        lambda_inv=-1,
+        dropout_rate=0,
+    ),
+    n2self6 = dict(
+        lr = 0.001,
+        batchNorm = False,
+        dropout = 0,
+        net = 'U_Net',
+        sheduler = False,
+        erweiterung = 'j-invariant',
+
+        radius = 6,
+        grid_size = 4,
+
+        augmentation = False,
+        lambda_inv=-1,
         dropout_rate=0,
     ),
 
