@@ -15,7 +15,7 @@ import io
 from PIL import Image
 
 from import_files import gerate_spezific_das, log_files, mask_random
-from import_files import U_Net
+from import_files import U_Net, Sebastian_N2SUNet
 from unet_copy import UNet as unet
 from import_files import SyntheticNoiseDAS
 from import_files import Direct_translation_SyntheticDAS
@@ -104,7 +104,7 @@ def generate_wave_plot(das, noisy_waves, denoised_waves, amps, snrs):
     # 2. Spalte: Verrauschte Wellen plotten
     for i, noisy_wave in enumerate(noisy_waves):
         axs[i, 1].plot(noisy_wave[0]/amps[i].item())
-        axs[i, 1].set_title(f'Noisy Wave (SNR={snrs[i]})')
+        axs[i, 1].set_title(f'Input Wave (SNR={snrs[i]})')
         axs[i, 1].set_ylim(min_wave, max_wave)
         remove_frame(axs[i, 1])  # Entferne den Rahmen
         if i < 2:  # Nur im untersten Plot eine x-Achse anzeigen
@@ -211,7 +211,7 @@ def generate_das_plot3(clean_das, all_noisy_waves, all_denoised_waves, amps, snr
     # Spalte 2: Noisy DAS (SNR 0.1 und SNR 10 in Zeilen)
     for i, snr_idx in enumerate(snr_indices):
         axs[i, 1].imshow(noisy_waves_cpu[i] / amps[i].item(), aspect='auto', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
-        axs[i, 1].set_title(f'Denoised DAS (SNR={snr_idx})')
+        axs[i, 1].set_title(f'Input DAS (SNR={snr_idx})')
         if i == 2:
             axs[i, 1].set_xlabel('Time')
             axs[i, 1].set_ylabel('Channel Index')
@@ -301,10 +301,24 @@ def save_example_wave(eq_strain_rates_test, model, device, writer, epoch):
         writer.add_scalar(f'Image Scaled Variance of SNR={snr}', sv, global_step=epoch)
         writer.add_scalar(f'Image LSD of SNR={snr}', lsd, global_step=epoch)
         writer.add_scalar(f'Image Korrelation of SNR={snr}', coherence, global_step=epoch)
-    
+
+def channelwise_mask(x, width=1, indices=None):
+    batch_size, _, nx, nt = x.shape
+    mask = torch.ones_like(x)
+    u = int(np.floor(width/2))
+    l = int(np.ceil(width/2))
+    if indices is None:
+        indices = torch.randint(u, nx - l, (batch_size,))
+    for i in range(batch_size):
+        mask[i, :, indices[i]-u:indices[i]+l] = 0
+    return (1-mask)
 
 def calculate_loss(noise_image, model, batch_idx, device, lambda_inv=2):
-    mask, marked_points = mask_random(noise_image, maskamount=0.005, mask_size=(1,1))
+    if modi == 0:
+        mask = channelwise_mask(noise_image)
+    else:
+        mask, marked_points = mask_random(noise_image, maskamount=0.005, mask_size=(1,1))
+    #mask = channelwise_mask(noise_image)
     #new
     #_,_,mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-2],noise_images.shape[-1]), 0.5, augment=False)
     marked_points = torch.sum(mask)
@@ -342,7 +356,10 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, store_path)
         else:
             with torch.no_grad():
                 model.eval()
-                loss, denoised, mask_orig = calculate_loss(noise_images, model, batch_idx, device)
+                if "val" in mode:
+                    loss, denoised, mask_orig = calculate_loss(noise_images, model, batch_idx, device)
+                else:
+                    loss = 0
                 #J-Invariant reconstruction
                 denoised = reconstruct(model, device, noise_images)
         #norming
@@ -422,24 +439,22 @@ def main(argv=[]):
 
     for i in range(1):
 
-        store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
+        store_path = Path(os.path.join(store_path_root, f"n2same-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
         tmp = Path(os.path.join(store_path, "tensorboard"))
         tmp.mkdir(parents=True, exist_ok=True)
         tmp = Path(os.path.join(store_path, "models"))
         tmp.mkdir(parents=True, exist_ok=True)
 
-        print("n2self")
+        print("n2same")
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
 
-        if modi >= 0:
-            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
-            #model = unet(n_channels=1, feature=4, bilinear=True).to(device)
-        #else:
-            #model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=True).to(device)
-            #model = unet(n_channels=1, feature=4, bilinear=False).to(device)
+        #model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
+        model = Sebastian_N2SUNet(1,1,4).to(device)
+        #model = unet(n_channels=1, feature=4, bilinear=True).to(device)
+
         
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         """
@@ -499,16 +514,17 @@ def main(argv=[]):
         loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, store_path=store_path)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)
         writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 0)
+        writer.add_scalar('Scaled Variance  Test', statistics.mean(scaledVariance_log_test), 0)
         writer.add_scalar('LSD Test', statistics.mean(lsd_log_test), 0)
         writer.add_scalar('Korelation Test', statistics.mean(coherence_log_test), 0)
-        model_save_path = os.path.join(store_path, "models", "last-model.pth")
+        model_save_path = os.path.join(store_path, "models", f"last-model-n2same{modi}.pth")
         torch.save(model.state_dict(), model_save_path)
         best_psnr[2] = statistics.mean(psnr_test)
         best_sv[2] = statistics.mean(scaledVariance_log_test)
         best_lsd[2] = statistics.mean(lsd_log_test)
         best_coherence[2] = statistics.mean(coherence_log_test)
         modi += 1
-    print("n2self fertig")
+    print("n2same fertig")
     return
 
 if __name__ == '__main__':
