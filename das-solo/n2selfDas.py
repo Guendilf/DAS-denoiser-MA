@@ -564,7 +564,7 @@ def main(argv=[]):
         tmp = Path(os.path.join(store_path, "models"))
         tmp.mkdir(parents=True, exist_ok=True)
 
-        print("n2self")
+        print(f"n2self {i}")
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
@@ -581,15 +581,15 @@ def main(argv=[]):
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         
         if modi == 2:
-            scheduler = torch.optim.lr_scheduler(optimizer, lr_lambda=lambda epoch: 0.1 if (epoch + 1) % 50 == 0 else 1.0)
+            scheduler = torch.optim.lr_scheduler.LambdaLR(
+                optimizer,
+                lr_lambda=lambda epoch: 0.1 ** (epoch // 50)  # Alle 50 Epochen um einen Faktor von 0.1 reduzieren
+            )
         
         writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
 
         for epoch in tqdm(range(epochs)):
-            start = time.time()
-            save_example_wave(eq_strain_rates_test, model, device, writer, epoch)
-            end = time.time()
-            print(f"Time for save_example_wave: {end-start}")
+            #save_example_wave(eq_strain_rates_test, model, device, writer, epoch)
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, store_path=store_path)
 
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
