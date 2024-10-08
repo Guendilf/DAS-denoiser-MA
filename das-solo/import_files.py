@@ -542,13 +542,12 @@ def select_random_pixels(image_shape, num_masked_pixels):
 def semblance(data, window_size=(15,25)):
     """Return torch.tensor(b,c,t)"""
     if len(data.shape) == 3:
-        print("data shape needs to be (b,c,t) or (c,t) and not (?,c,t)")
+        print("data shape needs to be (b,1,c,t) or (c,t) and not (?,c,t)")
     elif len(data.shape) == 2:
         data = data.unsqueeze(0).unsqueeze(0)
     batch, _, channels, time = data.shape
-    print(data.shape)
     semblance_vals = torch.zeros((batch, channels - window_size[0] + 1, time - window_size[1] + 1), device=data.device)    
-    for b in tqdm(range(batch)):
+    for b in range(batch):
         #Over Channels
         for c in range(channels - window_size[0] + 1):
             # Over Time

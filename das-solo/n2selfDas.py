@@ -187,8 +187,8 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
         masks[:, :, start_idx:end_idx, :] = 0
     else:
         raise ValueError("mask_methode not known")
-    plt.imshow(masks[0][0].detach().cpu().numpy(), origin='lower', interpolation='nearest', cmap='seismic', aspect='auto')
-    plt.show()
+    #plt.imshow(masks[0][0].detach().cpu().numpy(), origin='lower', interpolation='nearest', cmap='seismic', aspect='auto')
+    #plt.show()
     for i in range(num_patches_t):    
         noisy_samples = torch.zeros((NX, 1, nx, nt)).to(device)
         for j in range(NX):
@@ -199,8 +199,8 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
             x = (noisy_samples * masks + random_values*(1-masks)).float().to(device)
         else:
             x = (noisy_samples * masks).float().to(device)
-        plt.imshow(x[0][0].detach().cpu().numpy(), origin='lower', interpolation='nearest', cmap='seismic', aspect='auto')
-        plt.show()
+        #plt.imshow(x[0][0].detach().cpu().numpy(), origin='lower', interpolation='nearest', cmap='seismic', aspect='auto')
+        #plt.show()
         out = (model(x) * (1 - masks)).detach().cpu()
         rec[:, i*stride:i*stride + nt] += torch.sum(out, axis=(1,2))
         freq[:, i*stride:i*stride + nt] += torch.sum(1 - masks.detach().cpu(), axis=(1,2))
@@ -280,13 +280,14 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
         all_noise_das = torch.stack(all_noise_das)
         all_denoised_das = torch.stack(all_denoised_das)
         amps = torch.stack(amps)
+        all_semblance = semblance(all_denoised_das.unsqueeze(1).to(device)).detach().cpu().numpy()
         #normalise for picture making
         clean_das = clean_das/amps[-1]
         all_noise_das = all_noise_das/amps[:,None,None]
         all_denoised_das = all_denoised_das/amps[:,None,None]
 
         wave_plot_fig = generate_wave_plot(clean_das, all_noise_das, all_denoised_das, SNRs)
-        das_plot_fig = generate_das_plot3(clean_das, all_noise_das, all_denoised_das, snr_indices=SNRs, vmin=vmin, vmax=vmax)
+        das_plot_fig = generate_das_plot3(clean_das, all_noise_das, all_denoised_das, all_semblance, snr_indices=SNRs, vmin=vmin, vmax=vmax)
 
         buf = io.BytesIO()
         wave_plot_fig.savefig(buf, format='png')
@@ -308,13 +309,14 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
     else:
         clean_das = clean_das_original.detach().cpu().numpy()
         all_noise_das = clean_das_original.detach().cpu().numpy()
+        all_semblance = semblance(torch.from_numpy(real_denoised).to(device)).squeeze(0).detatch().cpu().numpy()
         SNRs = ['original']
         channel_idx_1 = 920 // 5 #weil in der bild generierung jeder 5. Kanal überspringen wird
         channel_idx_2 = 3000 // 5
         min_wave = min(clean_das[channel_idx_1].min(),clean_das[channel_idx_2].min())
         max_wave = max(clean_das[channel_idx_1].max(),clean_das[channel_idx_2].max())
         
-        fig = generate_real_das_plot(clean_das, real_denoised, channel_idx_1, channel_idx_2, vmin, vmax, min_wave, max_wave)
+        fig = generate_real_das_plot(clean_das, real_denoised, all_semblance, channel_idx_1, channel_idx_2, vmin, vmax, min_wave, max_wave)
         buf = io.BytesIO()
         fig.savefig(buf, format='png')
         plt.close(fig)
@@ -590,6 +592,7 @@ def main(argv=[]):
     masking_methodes=['original', 'same', 'self_2', 'self_3']
     for i in range(4):
         mask_methode = masking_methodes[i]
+        print(mask_methode)
 
         store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
         store_path.mkdir(parents=True, exist_ok=True)
@@ -690,6 +693,9 @@ def main(argv=[]):
         dataLoader_validate = DataLoader(real_dataset_val, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(real_dataset_test, batch_size=batchsize, shuffle=False)
         for epoch in tqdm(range(realEpochs)):
+            denoised1 = reconstruct(model, device, picture_DAS_real2.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode).to('cpu').detach().numpy()
+            save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised1[0][0], vmin=-100, vmax=100)
+
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch+epochs, masking_methode=mask_methode)
 
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch+epochs)
@@ -739,7 +745,6 @@ def main(argv=[]):
                 best_coherence[0][1] = statistics.mean(coherence_log)
             if statistics.mean(coherence_log_val) > best_coherence[1][1]:
                 best_coherence[1][1] = statistics.mean(coherence_log_val)
-            break
                 
         loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=1, masking_methode=mask_methode)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 1)
