@@ -11,6 +11,8 @@ import numpy as np
 import h5py
 from scipy import signal
 from torch.utils.data import Dataset
+from matplotlib.gridspec import GridSpec
+from tqdm import tqdm
 
 class n2nU_net(nn.Module):
     def __init__(self, in_chanel = 1, first_out_chanel=24, scaling_kernel_size=2, conv_kernel=3, batchNorm=False):
@@ -384,35 +386,32 @@ class SyntheticNoiseDAS(Dataset):
         return sample.unsqueeze(0), eq_das.unsqueeze(0), noise.unsqueeze(0), scale.unsqueeze(0), amp, sample2.unsqueeze(0), noise2.unsqueeze(0), scale2.unsqueeze(0)
 
 
-class Direct_translation_SyntheticDAS(Dataset):
-    def __init__(self, eq_strain_rates, 
-                 nx=11, nt=2048, eq_slowness=(1e-4, 5e-3), log_SNR=(-2,4),
-                 gauge=4, fs=50.0, size=1000, mode="train"):
-        self.X = eq_strain_rates  # Input data
-        self.Nx = eq_strain_rates.shape[0]      # station count
-        self.Nt_all = eq_strain_rates.shape[1]  # recordet time
-        self.nx = nx  # Chanels
-        self.nt = nt  # Timesamples
-        self.eq_slowness = eq_slowness
-        self.log_SNR = log_SNR
-        self.gauge = gauge
-        self.fs = fs
-        self.size = size  # datapoints in one batch
+class RealDAS(Dataset):
+    def __init__(self, data, nx=128, nt=512, size=1000):
         
-        self.samples, self.clean, self.noise, self.stds, self.amplitudes, self.samples2, self.noise2, self.std2 = self.__generate_data()
-    
-    def __generate_data(self):
+        self.data = torch.from_numpy(data.copy())
+        self.nx, self.nt = nx, nt
+        self.size = size
         
-        #           nois_image,                 clean                      noise         std der Daten (b,c,nx,1)  Ampllitude vom DAS (b)   
-        return torch.tensor(noisy_samples).unsqueeze(1), torch.tensor(samples).unsqueeze(1), torch.tensor(noise).unsqueeze(1), torch.tensor(std_list), torch.tensor(amp_list), torch.tensor(noisy_samples2).unsqueeze(1), torch.tensor(noise2).unsqueeze(1), torch.tensor(std_list2)
-
     def __len__(self):
-        """Gibt die Länge des Datasets zurück."""
         return self.size
-
+    
     def __getitem__(self, idx):
-        """Gibt ein einzelnes Sample zurück."""
-        return self.samples[idx], self.clean[idx], self.noise[idx], self.stds[idx], self.amplitudes[idx], self.samples2[idx], self.noise2[idx], self.std2[idx]
+        
+        n, nx_total, nt_total = self.data.shape
+        nx = np.random.randint(0, nx_total - self.nx)
+        nt = np.random.randint(0, nt_total - self.nt)
+        
+        patch = self.data[idx % n, nx:nx+self.nx, nt:nt+self.nt].clone()
+        
+        if np.random.random() < 0.5:
+            patch = torch.flip(patch, dims=(0,))
+        if np.random.random() < 0.5:
+            patch = torch.flip(patch, dims=(1,))
+        if np.random.random() < 0.5:
+            patch *= -1 
+        #       noise_images,        clean,                 noise,         std=1, amp=0, _, _, _
+        return patch.unsqueeze(0), patch.unsqueeze(0), patch.unsqueeze(0), torch.ones((1, 11, 1)), 0, 0, 0, 0
 
 
 def bandpass(x, low, high, fs, gutter, alpha=0.1):
@@ -534,3 +533,30 @@ def select_random_pixels(image_shape, num_masked_pixels):
     # Mache für alle Chanels
     #mask = mask.unsqueeze(0)
     return mask
+
+
+#                  (Sum[Signal(t)])**2
+# Semblance = -----------------------------
+#               Kanäle * Sum[Signal(t)**2]
+
+def semblance(data, window_size=(15,25)):
+    """Return torch.tensor(b,c,t)"""
+    if len(data.shape) == 3:
+        print("data shape needs to be (b,c,t) or (c,t) and not (?,c,t)")
+    elif len(data.shape) == 2:
+        data = data.unsqueeze(0).unsqueeze(0)
+    batch, _, channels, time = data.shape
+    print(data.shape)
+    semblance_vals = torch.zeros((batch, channels - window_size[0] + 1, time - window_size[1] + 1), device=data.device)    
+    for b in tqdm(range(batch)):
+        #Over Channels
+        for c in range(channels - window_size[0] + 1):
+            # Over Time
+            for t in range(time - window_size[1] + 1):
+                window = data[b, 0, c:c+window_size[0], t:t+window_size[1]]
+                sum_signals = (window.sum(dim=0)**2).sum(dim=0)
+                scaled_sum = (window**2).sum(dim=0).sum(dim=0)
+                # Semblance berechnen
+                semblance_vals[b, c, t] = sum_signals / (window_size[0] * scaled_sum)
+
+    return semblance_vals
