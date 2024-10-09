@@ -163,7 +163,7 @@ def generate_real_das_plot(clean_das, all_denoised_das, semblance_das, channel_i
         axs[0, 1].axhline(y=channel_idx_2, color='green', linestyle='--', linewidth=2, label=f'Channel {channel_idx_2}')
 
         #color bar for semblance
-        im = axs[0, 2].imshow(semblance_das[0], origin='lower', interpolation='nearest', cmap='viridis', aspect='auto')
+        im = axs[0, 2].imshow(semblance_das, origin='lower', interpolation='nearest', cmap='viridis', aspect='auto')
         fig.colorbar(im, cax=axs[0, 3])
         remove_frame(axs[1, 3])
         axs[1, 3].set_yticks([])

@@ -280,7 +280,7 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
         all_noise_das = torch.stack(all_noise_das)
         all_denoised_das = torch.stack(all_denoised_das)
         amps = torch.stack(amps)
-        all_semblance = semblance(all_denoised_das.unsqueeze(1).to(device)).detach().cpu().numpy()
+        all_semblance = semblance(all_denoised_das.unsqueeze(1).to(device))
         #normalise for picture making
         clean_das = clean_das/amps[-1]
         all_noise_das = all_noise_das/amps[:,None,None]
@@ -309,7 +309,7 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
     else:
         clean_das = clean_das_original.detach().cpu().numpy()
         all_noise_das = clean_das_original.detach().cpu().numpy()
-        all_semblance = semblance(torch.from_numpy(real_denoised).to(device)).squeeze(0).detatch().cpu().numpy()
+        all_semblance = semblance(torch.from_numpy(real_denoised).to(device)).squeeze(0).cpu().numpy()
         SNRs = ['original']
         channel_idx_1 = 920 // 5 #weil in der bild generierung jeder 5. Kanal überspringen wird
         channel_idx_2 = 3000 // 5
