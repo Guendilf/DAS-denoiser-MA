@@ -96,16 +96,13 @@ def reconstruct_old(model, device, noise_images):
     return buffer
 
 def reconstruct(model, device, data, nx=11, nt=2048, batch_size=32, num_masked_channels=1, mask_methode='original'):
-    buffer = []
-    for sample in data:
-        sample = sample.squeeze(0)
-        datas = sample.split(batch_size, dim=0)
-        recs = []
-        for das in datas:
-            recs.append(channelwise_reconstruct_part(model, device, das, nx, nt, num_masked_channels, mask_methode))
-        buffer.append(torch.cat(recs, dim=0).unsqueeze(0))
-    return torch.stack(buffer).to(device)
-
+    #TODO: make it work with whole batches
+    data = data.squeeze(1)
+    datas = data.split(1, dim=0)
+    recs = []
+    for das in datas:
+        recs.append(channelwise_reconstruct_part(model, device, das[0], nx, nt, num_masked_channels, mask_methode))
+    return torch.stack(recs).unsqueeze(1).to(device)
 def channelwise_reconstruct_part_original_sebastian(model, device, data, nx, nt): # nx=11, nt=2048 
     NX, NT = data.shape
     stride = 2048
@@ -322,7 +319,7 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
         plt.close(fig)
         buf.seek(0)
         img = np.array(Image.open(buf))
-        writer.add_image(f"Image Plot DAS Real vmin={vmin}", img, global_step=epoch, dataformats='HWC')
+        writer.add_image(f"Image Plot DAS Real", img, global_step=epoch, dataformats='HWC')
         buf.close()
 
         clean_das = torch.from_numpy(clean_das)
@@ -519,6 +516,7 @@ def main(argv=[]):
     dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
     dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
 
+    #---------------real daten laden----------------
 
     train_path = "Server_DAS/real_train/"
     test_path = "Server_DAS/real_test/"
@@ -552,7 +550,6 @@ def main(argv=[]):
             DAS_sample = DAS_sample[::5] #if dx = 20
             test_real_data.append(DAS_sample)
     test_real_data = np.stack(test_real_data)
-    original__real_test_data = test_real_data.copy()
     gutter = 1000
     test_real_data = np.pad(test_real_data, ((0,0),(0,0),(gutter,gutter)), mode='constant', constant_values=0)
     chunks = np.array_split(test_real_data, 5)
@@ -567,14 +564,13 @@ def main(argv=[]):
     real_dataset = RealDAS(train_real_data, nx=dasChanelsTrain, nt=nt, size=300*batchsize)
     real_dataset_val = RealDAS(val_real_data, nx=dasChanelsVal, nt=nt, size=20*batchsize)
     real_dataset_test = RealDAS(test_real_data, nx=dasChanelsTest, nt=nt, size=20*batchsize)
-
+    
     print("Datensätze geladen!")
 
     wave = eq_strain_rates_test[6][4200:6248]
     picture_DAS_syn = gerate_spezific_das(wave, nx=300, nt=2048, eq_slowness=1/(500), gauge=gauge_length, fs=sampling)
     picture_DAS_syn = picture_DAS_syn.to(device).type(torch.float32)
-    picture_DAS_real1 = torch.from_numpy(test_real_data[2][:,:4500]).to(device).type(torch.float32)
-    picture_DAS_real2 = torch.from_numpy(original__real_test_data[2][:,:4500]).to(device).type(torch.float32) #mit plot von: vmin=-100, vmax=100
+    picture_DAS_real1 = torch.from_numpy(test_real_data[2][:,4500:]).to(device).type(torch.float32)
 
     
   
@@ -624,6 +620,7 @@ def main(argv=[]):
         writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
 
         for epoch in tqdm(range(epochs)):
+            #break
             #save_example_wave(picture_DAS_syn, model, device, writer, epoch)
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, masking_methode=mask_methode)
 
@@ -671,7 +668,7 @@ def main(argv=[]):
                 best_coherence[0][0] = statistics.mean(coherence_log)
             if statistics.mean(coherence_log_val) > best_coherence[1][0]:
                 best_coherence[1][0] = statistics.mean(coherence_log_val)
-                
+        #"""
         loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, masking_methode=mask_methode)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)
         writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 0)
@@ -684,7 +681,7 @@ def main(argv=[]):
         best_sv[2][0] = statistics.mean(scaledVariance_log_test)
         best_lsd[2][0] = statistics.mean(lsd_log_test)
         best_coherence[2][0] = statistics.mean(coherence_log_test)
-        
+        #"""
 
         #-------------real data----------------
 
@@ -694,8 +691,6 @@ def main(argv=[]):
         dataLoader_validate = DataLoader(real_dataset_val, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(real_dataset_test, batch_size=batchsize, shuffle=False)
         for epoch in tqdm(range(realEpochs)):
-            denoised1 = reconstruct(model, device, picture_DAS_real2.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode).to('cpu').detach().numpy()
-            save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised1[0][0], vmin=-100, vmax=100)
 
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch+epochs, masking_methode=mask_methode)
 
@@ -718,9 +713,7 @@ def main(argv=[]):
 
             if epoch % 5 == 0  or epoch==epochs-1:
                 denoised1 = reconstruct(model, device, picture_DAS_real1.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode).to('cpu').detach().numpy()
-                denoised2 = reconstruct(model, device, picture_DAS_real2.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode).to('cpu').detach().numpy()
-                save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised1[0][0], vmin=-100, vmax=100)
-                save_example_wave(picture_DAS_real2, model, device, writer, epoch+epochs, denoised2[0][0], vmin=-100, vmax=100)
+                save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised1[0][0], vmin=-1, vmax=1)
 
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar('Lernrate', current_lr, epoch+epochs)

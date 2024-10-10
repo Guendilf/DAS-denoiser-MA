@@ -547,15 +547,11 @@ def semblance(data, window_size=(15,25)):
         data = data.unsqueeze(0).unsqueeze(0)
     batch, _, channels, time = data.shape
     semblance_vals = torch.zeros((batch, channels - window_size[0] + 1, time - window_size[1] + 1), device=data.device)    
-    for b in range(batch):
-        #Over Channels
-        for c in range(channels - window_size[0] + 1):
-            # Over Time
-            for t in range(time - window_size[1] + 1):
-                window = data[b, 0, c:c+window_size[0], t:t+window_size[1]]
-                sum_signals = (window.sum(dim=0)**2).sum(dim=0)
-                scaled_sum = (window**2).sum(dim=0).sum(dim=0)
-                # Semblance berechnen
-                semblance_vals[b, c, t] = sum_signals / (window_size[0] * scaled_sum)
 
+    #more dimensions for window sliding
+    unfolded = torch.nn.functional.unfold(data, kernel_size=(window_size[0], window_size[1])).view(batch, window_size[0], window_size[1], channels - window_size[0] + 1, time - window_size[1] + 1)
+    sum_signals = (unfolded.sum(dim=1)**2).sum(dim=1)
+    scaled_sum = (unfolded**2).sum(dim=1).sum(dim=1)
+    
+    semblance_vals = sum_signals / (window_size[0] * scaled_sum)
     return semblance_vals

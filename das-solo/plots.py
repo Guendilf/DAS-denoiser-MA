@@ -91,7 +91,7 @@ def generate_das_plot3(clean_das, all_noisy_waves, all_denoised_waves, all_sembl
     fig, axs = plt.subplots(3, 4, figsize=(15, 10), gridspec_kw={'width_ratios': [1, 1, 1, 1.1], 'height_ratios': [1, 1, 1]})
 
     # Spalte 1: Clean DAS (mittig, über vier Zeilen)
-    axs[1, 0].imshow(clean_das_cpu, aspect='auto', origin='lower', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
+    axs[1, 0].imshow(clean_das_cpu, aspect='auto', origin='lower', vmin=vmin, vmax=vmax, cmap='seismic', interpolation="antialiased", rasterized=True)
     axs[1, 0].set_title('Clean DAS')
     #remove_frame(axs[1, 0])  # Entferne den Rahmen
     #set_bottom_line(axs[1, 0])  # Zeige nur die untere Linie
@@ -104,7 +104,7 @@ def generate_das_plot3(clean_das, all_noisy_waves, all_denoised_waves, all_sembl
     
     # Spalte 2: Noisy DAS (SNR 0.1 und SNR 10 in Zeilen)
     for i, snr_idx in enumerate(snr_indices):
-        axs[i, 1].imshow(noisy_waves_cpu[i], aspect='auto', origin='lower', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
+        axs[i, 1].imshow(noisy_waves_cpu[i], aspect='auto', origin='lower', vmin=vmin, vmax=vmax, cmap='seismic', interpolation="antialiased", rasterized=True)
         axs[i, 1].set_title(f'Input DAS (SNR={snr_idx})')
         if i == 2:
             axs[i, 1].set_xlabel('Time')
@@ -112,7 +112,7 @@ def generate_das_plot3(clean_das, all_noisy_waves, all_denoised_waves, all_sembl
 
     # Spalte 3: Denoised DAS (SNR 0.1 und SNR 10 in Zeilen)
     for i, snr_idx in enumerate(snr_indices):
-        axs[i, 2].imshow(denoised_waves_cpu[i], aspect='auto', origin='lower', vmin=vmin, vmax=vmax, cmap='viridis', interpolation="antialiased", rasterized=True)
+        axs[i, 2].imshow(denoised_waves_cpu[i], aspect='auto', origin='lower', vmin=vmin, vmax=vmax, cmap='seismic', interpolation="antialiased", rasterized=True)
         axs[i, 2].set_title(f'Denoised DAS (SNR={snr_idx})')
         if i == 2:# Für den untersten Plot die Linie und die Beschriftung anzeigen
             axs[i, 2].set_xlabel('Time')
@@ -150,17 +150,17 @@ def generate_real_das_plot(clean_das, all_denoised_das, semblance_das, channel_i
         axs[0, 0].set_title('Real DAS Sample')
         axs[0, 0].set_ylabel('Channel Index')
         axs[0, 0].axhline(y=channel_idx_1, color='blue', linestyle='--', linewidth=2, label=f'Channel {channel_idx_1}')
-        axs[0, 0].axhline(y=channel_idx_2, color='green', linestyle='--', linewidth=2, label=f'Channel {channel_idx_2}')
+        axs[0, 0].axhline(y=channel_idx_2, color='red', linestyle='--', linewidth=2, label=f'Channel {channel_idx_2}')
 
         axs[0, 1].imshow(all_denoised_das, origin='lower', interpolation='nearest', cmap='seismic', aspect='auto', vmin=vmin, vmax=vmax)
         axs[0, 1].set_title('Denoised')
         axs[0, 1].axhline(y=channel_idx_1, color='blue', linestyle='--', linewidth=2, label=f'Channel {channel_idx_1}')
-        axs[0, 1].axhline(y=channel_idx_2, color='green', linestyle='--', linewidth=2, label=f'Channel {channel_idx_2}')
+        axs[0, 1].axhline(y=channel_idx_2, color='red', linestyle='--', linewidth=2, label=f'Channel {channel_idx_2}')
 
         axs[0, 2].imshow(semblance_das, origin='lower', interpolation='nearest', cmap='viridis', aspect='auto')
         axs[0, 2].set_title('Semblance')
         axs[0, 1].axhline(y=channel_idx_1, color='blue', linestyle='--', linewidth=2, label=f'Channel {channel_idx_1}')
-        axs[0, 1].axhline(y=channel_idx_2, color='green', linestyle='--', linewidth=2, label=f'Channel {channel_idx_2}')
+        axs[0, 1].axhline(y=channel_idx_2, color='red', linestyle='--', linewidth=2, label=f'Channel {channel_idx_2}')
 
         #color bar for semblance
         im = axs[0, 2].imshow(semblance_das, origin='lower', interpolation='nearest', cmap='viridis', aspect='auto')
@@ -193,7 +193,7 @@ def generate_real_das_plot(clean_das, all_denoised_das, semblance_das, channel_i
         set_bottom_line(axs[1, 2])  # Zeige nur die untere Linie
         axs[1, 2].set_yticks([])
 
-        axs[2, 0].plot(clean_das[channel_idx_2], color='green')
+        axs[2, 0].plot(clean_das[channel_idx_2], color='red')
         axs[2, 0].set_ylim(min_wave, max_wave)
         axs[2, 0].set_ylabel(f'Kanal {channel_idx_2}')
         axs[2, 0].set_xlabel('Time')
@@ -201,14 +201,14 @@ def generate_real_das_plot(clean_das, all_denoised_das, semblance_das, channel_i
         set_bottom_line(axs[2, 0], True)  # Zeige nur die untere Linie
         axs[2, 0].set_yticks([])
 
-        axs[2, 1].plot(all_denoised_das[channel_idx_2], color='green')
+        axs[2, 1].plot(all_denoised_das[channel_idx_2], color='red')
         axs[2, 1].set_ylim(min_wave, max_wave)
         axs[2, 1].set_xlabel('Time')
         remove_frame(axs[2, 1])  # Entferne den Rahmen
         set_bottom_line(axs[2, 1], True)  # Zeige nur die untere Linie
         axs[2, 1].set_yticks([])
 
-        axs[2, 2].plot(semblance_das[channel_idx_2], color='green')
+        axs[2, 2].plot(semblance_das[channel_idx_2], color='red')
         axs[2, 2].set_ylim(min_wave, max_wave)
         axs[2, 2].set_xlabel('Time')
         remove_frame(axs[2, 2])  # Entferne den Rahmen
