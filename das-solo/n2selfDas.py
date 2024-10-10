@@ -28,7 +28,7 @@ from plots import generate_wave_plot, generate_das_plot3, generate_real_das_plot
 #tensorboard --logdir="C:\Users\LaAlexPi\Documents\01_Uni\MA\runs\"                         #Laptop
 
 epochs = 300 #2.000 epochen - 1 Epoche = 3424 samples
-realEpochs = 200
+realEpochs = 50
 batchsize = 32
 maskChanels = 1
 dasChanelsTrain = 11*maskChanels
@@ -590,7 +590,8 @@ def main(argv=[]):
     best_coherence = [[-1,-1],[-1,-1],[-1,-1]] #1 = perfekte Korrelation zwischen Rauschsignale und Rekonstruktion; 0 = keine Korrelation
 
     masking_methodes=['original', 'same', 'self_2', 'self_3']
-    for i in range(4):
+    for i in range(3):
+        i = i+1
         mask_methode = masking_methodes[i]
         print(mask_methode)
 
@@ -724,7 +725,7 @@ def main(argv=[]):
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar('Lernrate', current_lr, epoch+epochs)
 
-            if epoch % 50 == 0:
+            if epoch % 10 == 0:
                 model_save_path = os.path.join(store_path, "models", f"chk-n2self{modi}_real_{epoch}.pth")
                 torch.save(model.state_dict(), model_save_path)
 
