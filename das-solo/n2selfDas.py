@@ -15,6 +15,7 @@ from PIL import Image
 import h5py
 from scipy import signal
 from skimage.morphology import disk
+from skimage.transform import resize
 
 from import_files import gerate_spezific_das, log_files, bandpass
 from import_files import U_Net, Sebastian_N2SUNet
@@ -171,17 +172,16 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
     start_idx = max(center_idx - half_mask, 0) #max(5-1,0) = 4
     end_idx = min(center_idx + half_mask + (num_masked_channels % 2), nx) #min(5+1+(3%2), 11) = 7
     # num mask chanel = 1 -> 5-6  num mask chanel = 2 -> 4-6  num mask chanel = 3 -> 4-7  num mask chanel = 4 -> 5-6
+    masks[:, :, start_idx:end_idx, :] = 0
     if "original" in mask_methode:
-        masks[:, :, start_idx:end_idx, :] = 0
+        pass
     elif "same" in mask_methode:
-        masks[:, :, start_idx:end_idx, :] = 0
         random_values = torch.normal(0, 0.2, size=masks.shape).to(device) #shape wie noisy_samples
     elif "self" in mask_methode:    #machen mit circle und so wie im n2self paper
         _, r = mask_methode.split('_')
         r = int(r)
         if r*2 > nx:
             raise ValueError(f"radius {r} is to big for {nx} channels")
-        masks[:, :, start_idx:end_idx, :] = 0
     else:
         raise ValueError("mask_methode not known")
     #plt.imshow(masks[0][0].detach().cpu().numpy(), origin='lower', interpolation='nearest', cmap='seismic', aspect='auto')
@@ -191,7 +191,7 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
         for j in range(NX):
             noisy_samples[j] = data_pad[j:j+nx, i*stride:i*stride + nt]
         if "self" in mask_methode:
-            x = interpolate_disk(noisy_samples, masks, r, num_masked_channels).float().to(device)
+            x = interpolate_disk(noisy_samples, masks, r, num_masked_channels).float().to(device) #TODO:can be oval
         elif "same" in mask_methode:
             x = (noisy_samples * masks + random_values*(1-masks)).float().to(device)
         else:
@@ -207,7 +207,7 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
         for j in range(NX):
             noisy_samples[j] = data_pad[j:j+nx, -nt:]
         if "self" in mask_methode:
-            x = interpolate_disk(noisy_samples, masks, r, num_masked_channels).float().to(device)
+            x = interpolate_disk(noisy_samples, masks, r, num_masked_channels).float().to(device) #TODO:can be oval
         elif "same" in mask_methode:
             x = (noisy_samples * masks + random_values*(1-masks)).float().to(device)
         else:
@@ -219,13 +219,13 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
     rec /= freq    
     return rec
 
-def interpolate_disk(tensor, masks, radius, width):
+def interpolate_disk(tensor, masks, radius, width, oval_height=None, oval_width=None):
     """From masks.py of the uppest folder used for pictures"""
     masks = masks.to(tensor.device)
     masks_inv = (1-masks).to(tensor.device)
     
     # Dynamisch den Kernel mit dem gewünschten Radius generieren
-    kernel_np = n2self_mask_mit_loch_center(radius, width)
+    kernel_np = n2self_mask_mit_loch_center(radius, width, oval_height, oval_width)
     kernel_np = kernel_np[np.newaxis, np.newaxis, :, :]  # Zu (1, 1, h, w) formen
     kernel_tensor = torch.Tensor(kernel_np).to(tensor.device)
     kernel_tensor = kernel_tensor / kernel_tensor.sum()
@@ -235,11 +235,16 @@ def interpolate_disk(tensor, masks, radius, width):
     filtered_tensor = torch.nn.functional.conv2d(tensor, kernel_tensor, stride=1, padding=radius)
     
     # Wende die Maske an: wo mask == 1 wird interpoliert, wo mask_inv == 1 bleibt der originale Wert
-    return filtered_tensor * masks_inv + tensor * masks
-def n2self_mask_mit_loch_center(radius, width):
+    return filtered_tensor * masks + tensor * masks_inv
+def n2self_mask_mit_loch_center(radius, width, oval_height, oval_width):
     kernel = disk(radius).astype(np.float32)
+    #if oval instead of circle
+    if oval_width:
+        kernel = resize(kernel, (oval_height, oval_width), mode='reflect', anti_aliasing=True)
     center = len(kernel) // 2
     kernel[center, center] = 0  # Setze das Zentrum auf 0
+    if width == 0:
+        return kernel
     kernel[center, :] = 0  # Setze den mittleren Chanel auf 0
     #Maksiere weiter Kanäle, wenn nicht nur der eine mittlere Kanal maskiert werden soll
     channel_masked = 1
@@ -253,6 +258,42 @@ def n2self_mask_mit_loch_center(radius, width):
             kernel[center-(channel_masked//2+1),:] = 0
         channel_to_mask -= 1
     return kernel
+
+def xcorr(x, y):
+    # implementation from https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277?file=26674424
+    # FFT of x and conjugation
+    X_bar = np.fft.rfft(x).conj()
+    Y = np.fft.rfft(y)
+    # Compute norm of data
+    norm_x_sq = np.sum(x**2)
+    norm_y_sq = np.sum(y**2)
+    norm = np.sqrt(norm_x_sq * norm_y_sq)
+    # Correlation coefficients
+    R = np.fft.irfft(X_bar * Y) / norm
+    # Return correlation coefficient
+    return np.max(R)
+def compute_xcorr_window(x):
+    # implementation from https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277?file=26674424
+    Nch = x.shape[0]
+    Cxy = np.zeros((Nch, Nch)) * np.nan
+    for i in range(Nch):
+        for j in range(i):
+            Cxy[i, j] = xcorr(x[i], x[j])
+    return np.nanmean(Cxy)
+def compute_moving_coherence(data, bin_size):
+    """ implementation from https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277?file=26674424
+    Args:
+    data: DAS data with shape (N_ch, N_t)
+    bin_size: Size of the moving window
+    """    
+    N_ch = data.shape[0]
+    cc = np.zeros(N_ch)
+    for i in range(N_ch):
+        start = max(0, i - bin_size // 2)
+        stop = min(i + bin_size // 2, N_ch)
+        ch_slice = slice(start, stop)
+        cc[i] = compute_xcorr_window(data[ch_slice])
+    return cc
 
 def save_example_wave(clean_das_original, model, device, writer, epoch, real_denoised=None, vmin=-1, vmax=1, mask_methode='original'):
     SNRs = [0.1, 1, 10]
@@ -312,8 +353,12 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
         channel_idx_2 = 3000 // 5
         min_wave = min(clean_das[channel_idx_1].min(),clean_das[channel_idx_2].min())
         max_wave = max(clean_das[channel_idx_1].max(),clean_das[channel_idx_2].max())
+
+        cc_clean = compute_moving_coherence(clean_das, dasChanelsTrain) #11 weil 11 Kanäle in training?
+        cc_rec = compute_moving_coherence(real_denoised, dasChanelsTrain) #11 weil 11 Kanäle in training?
+        cc_gain_rec = cc_rec / cc_clean
         
-        fig = generate_real_das_plot(clean_das, real_denoised, all_semblance, channel_idx_1, channel_idx_2, vmin, vmax, min_wave, max_wave)
+        fig = generate_real_das_plot(clean_das, real_denoised, all_semblance, channel_idx_1, channel_idx_2, cc_gain_rec, vmin, vmax, min_wave, max_wave)
         buf = io.BytesIO()
         fig.savefig(buf, format='png')
         plt.close(fig)
@@ -357,7 +402,9 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
         writer.add_scalar(f'Image Korrelation of SNR={snr}', coherence, global_step=epoch)
     
 def channelwise_mask(x, width=1, indices=None):
-
+    """Return:
+    mask: mask with 1 for the chosen channels to be blanked out
+    """
     batch_size, _, nx, nt = x.shape
     mask = torch.ones_like(x)
     u = int(np.floor(width/2))
@@ -387,7 +434,7 @@ def calculate_loss(noise_image, model, batch_idx, masking_methode):
         nx = noise_image.shape[-2]
         if r*2 > nx:
             raise ValueError(f"radius {r} is to big for {nx} channels")
-        masked_noise_image = interpolate_disk(noise_image, mask, r, maskChanels).float().to(device)
+        masked_noise_image = interpolate_disk(noise_image, mask, r, maskChanels).float().to(device) #TODO:can be oval
     denoised = model(masked_noise_image)
     #loss_my = torch.nn.MSELoss()(denoised*(mask), noise_image*(mask))
     return torch.mean(torch.mean(mask * (denoised - noise_image)**2, dim=-1)), denoised, mask
@@ -477,14 +524,6 @@ def main(argv=[]):
     print("lade Datensätze ...")
     eq_strain_rates = np.load(strain_train_dir)
     # Normalise waveforms
-    """
-    N_ch, N_t = eq_strain_rates.shape
-    t_slice = slice(N_t//4, 3*N_t//4)
-    scaled_data = np.zeros_like(eq_strain_rates)
-    for i, wv in enumerate(eq_strain_rates):
-        scaled_data[i] = wv / wv[t_slice].std()
-    eq_strain_rates = scaled_data
-    """
     N_ch, N_t = eq_strain_rates.shape
     t_slice = slice(N_t//4, 3*N_t//4)
     stds = eq_strain_rates[:, t_slice].std(axis=1, keepdims=True)
@@ -496,14 +535,6 @@ def main(argv=[]):
 
     eq_strain_rates_test = np.load(strain_test_dir)
     # Normalise waveforms
-    """code aus n2self paper
-    N_ch, N_t = eq_strain_rates_test.shape
-    t_slice = slice(N_t//4, 3*N_t//4)
-    scaled_data = np.zeros_like(eq_strain_rates_test)
-    for i, wv in enumerate(eq_strain_rates_test):
-        scaled_data[i] = wv / wv[t_slice].std()
-    eq_strain_rates_test = scaled_data
-    """
     N_ch, N_t = eq_strain_rates_test.shape
     t_slice = slice(N_t//4, 3*N_t//4)
     stds = eq_strain_rates_test[:, t_slice].std(axis=1, keepdims=True)
@@ -517,7 +548,7 @@ def main(argv=[]):
     dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
 
     #---------------real daten laden----------------
-
+    """
     train_path = "Server_DAS/real_train/"
     test_path = "Server_DAS/real_test/"
     train_path = sorted([train_path + f for f in os.listdir(train_path)])
@@ -564,13 +595,13 @@ def main(argv=[]):
     real_dataset = RealDAS(train_real_data, nx=dasChanelsTrain, nt=nt, size=300*batchsize)
     real_dataset_val = RealDAS(val_real_data, nx=dasChanelsVal, nt=nt, size=20*batchsize)
     real_dataset_test = RealDAS(test_real_data, nx=dasChanelsTest, nt=nt, size=20*batchsize)
-    
+    """
     print("Datensätze geladen!")
 
     wave = eq_strain_rates_test[6][4200:6248]
     picture_DAS_syn = gerate_spezific_das(wave, nx=300, nt=2048, eq_slowness=1/(500), gauge=gauge_length, fs=sampling)
     picture_DAS_syn = picture_DAS_syn.to(device).type(torch.float32)
-    picture_DAS_real1 = torch.from_numpy(test_real_data[2][:,4500:]).to(device).type(torch.float32)
+    #picture_DAS_real1 = torch.from_numpy(test_real_data[2][:,4500:]).to(device).type(torch.float32)
 
     
   
@@ -587,7 +618,7 @@ def main(argv=[]):
 
     masking_methodes=['original', 'same', 'self_2', 'self_3']
     for i in range(3):
-        i = i+1
+        i = i+2
         mask_methode = masking_methodes[i]
         print(mask_methode)
 
