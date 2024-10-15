@@ -17,19 +17,21 @@ from scipy import signal
 from skimage.morphology import disk
 from skimage.transform import resize
 
-from import_files import gerate_spezific_das, log_files, bandpass
+from import_files import gerate_spezific_das, log_files, bandpass, mask_random
 from import_files import U_Net, Sebastian_N2SUNet
 from unet_copy import UNet as unet
 from import_files import SyntheticNoiseDAS, RealDAS
-from import_files import semblance
+from utils_DAS import moving_window_semblance, semblance
 from plots import generate_wave_plot, generate_das_plot3, generate_real_das_plot
+from utils_DAS import compute_moving_coherence
+import pandas as pd
 
 #tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\Code\DAS-denoiser-MA\runs"      #PC
 #tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\runs"                           #vom Server
 #tensorboard --logdir="C:\Users\LaAlexPi\Documents\01_Uni\MA\runs\"                         #Laptop
 
 epochs = 300 #2.000 epochen - 1 Epoche = 3424 samples
-realEpochs = 50
+realEpochs = 100
 batchsize = 32
 maskChanels = 1
 dasChanelsTrain = 11*maskChanels
@@ -41,7 +43,8 @@ lr = 0.0001
 batchnorm = False
 save_model = False
 
-gauge_length = 4#19.2
+gauge_length = 10
+channel_spacing = 4#oder 19.2
 snr = (-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
 slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
 sampling = 50.0
@@ -52,7 +55,7 @@ modi = 0 #testing diffrent setups
 """
 TODO:
 - swuish activation funktion with ??? parameter     -> Sigmoid Linear Unit (SiLU) function
-- gauge = 19,2
+- channel_spacing = 19,2
 - 50 Hz frequenz
 """
 def visualise_spectrum(spectrum_noise, spectrum_denoised):
@@ -96,10 +99,13 @@ def reconstruct_old(model, device, noise_images):
         buffer[:, :, noise_images.shape[2]-dasChanelsTrain:, :] += j_denoised * mask
     return buffer
 
-def reconstruct(model, device, data, nx=11, nt=2048, batch_size=32, num_masked_channels=1, mask_methode='original'):
+def reconstruct(model, device, data, nx=11, nt=2048, batch_size=32, num_masked_channels=1, mask_methode='channel_1'):
     #TODO: make it work with whole batches
     data = data.squeeze(1)
     datas = data.split(1, dim=0)
+    if "channel" in mask_methode:
+        _, num_masked_channels = mask_methode.split('_')
+        num_masked_channels = int(num_masked_channels)
     recs = []
     for das in datas:
         recs.append(channelwise_reconstruct_part(model, device, das[0], nx, nt, num_masked_channels, mask_methode))
@@ -173,13 +179,28 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
     end_idx = min(center_idx + half_mask + (num_masked_channels % 2), nx) #min(5+1+(3%2), 11) = 7
     # num mask chanel = 1 -> 5-6  num mask chanel = 2 -> 4-6  num mask chanel = 3 -> 4-7  num mask chanel = 4 -> 5-6
     masks[:, :, start_idx:end_idx, :] = 0
-    if "original" in mask_methode:
+    if "pixel" in mask_methode:
+        _, mask_percent = mask_methode.split('_')
+        mask_percent = int(mask_percent)
+        masks, _ = mask_random(data, mask_percent, (1,1))
+        masks = masks.to(device)
+        masks = 1-masks
+
+    if "channel" in mask_methode:
         pass
-    elif "same" in mask_methode:
+    elif "random" in mask_methode:
         random_values = torch.normal(0, 0.2, size=masks.shape).to(device) #shape wie noisy_samples
-    elif "self" in mask_methode:    #machen mit circle und so wie im n2self paper
+    elif "circle" in mask_methode:    #machen mit circle und so wie im n2self paper
         _, r = mask_methode.split('_')
         r = int(r)
+        if r*2 > nx:
+            raise ValueError(f"radius {r} is to big for {nx} channels")
+    elif "oval" in mask_methode:
+        _, w, h = mask_methode.split('_')
+        w = int(w)
+        h = int(h)
+        r = min(w,h)
+        nx = data.shape[-2]
         if r*2 > nx:
             raise ValueError(f"radius {r} is to big for {nx} channels")
     else:
@@ -190,9 +211,11 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
         noisy_samples = torch.zeros((NX, 1, nx, nt)).to(device)
         for j in range(NX):
             noisy_samples[j] = data_pad[j:j+nx, i*stride:i*stride + nt]
-        if "self" in mask_methode:
-            x = interpolate_disk(noisy_samples, masks, r, num_masked_channels).float().to(device) #TODO:can be oval
-        elif "same" in mask_methode:
+        if "circle" in mask_methode:
+            x = interpolate_disk(noisy_samples, masks, r, num_masked_channels).float().to(device)
+        elif "oval" in mask_methode:
+            x = interpolate_disk(noisy_samples, masks, r, maskChanels, oval_height=h, oval_width=w).float().to(device)
+        elif "random" in mask_methode:
             x = (noisy_samples * masks + random_values*(1-masks)).float().to(device)
         else:
             x = (noisy_samples * masks).float().to(device)
@@ -206,9 +229,11 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
         noisy_samples = torch.zeros((NX, 1, nx, nt)).to(device)
         for j in range(NX):
             noisy_samples[j] = data_pad[j:j+nx, -nt:]
-        if "self" in mask_methode:
-            x = interpolate_disk(noisy_samples, masks, r, num_masked_channels).float().to(device) #TODO:can be oval
-        elif "same" in mask_methode:
+        if "circle" in mask_methode:
+            x = interpolate_disk(noisy_samples, masks, r, num_masked_channels).float().to(device)
+        elif "oval" in mask_methode:
+            x = interpolate_disk(noisy_samples, masks, r, maskChanels, oval_height=h, oval_width=w).float().to(device)
+        elif "random" in mask_methode:
             x = (noisy_samples * masks + random_values*(1-masks)).float().to(device)
         else:
             x = (noisy_samples * masks).float().to(device)
@@ -232,7 +257,7 @@ def interpolate_disk(tensor, masks, radius, width, oval_height=None, oval_width=
 
     # Repliziere den Kernel für jeden Farbkanal (c Kanäle)
     kernel_tensor = kernel_tensor.repeat(1, tensor.shape[1], 1, 1)
-    filtered_tensor = torch.nn.functional.conv2d(tensor, kernel_tensor, stride=1, padding=radius)
+    filtered_tensor = torch.nn.functional.conv2d(tensor, kernel_tensor, stride=1, padding=kernel_tensor.shape[-1]//2)
     
     # Wende die Maske an: wo mask == 1 wird interpoliert, wo mask_inv == 1 bleibt der originale Wert
     return filtered_tensor * masks + tensor * masks_inv
@@ -240,7 +265,17 @@ def n2self_mask_mit_loch_center(radius, width, oval_height, oval_width):
     kernel = disk(radius).astype(np.float32)
     #if oval instead of circle
     if oval_width:
-        kernel = resize(kernel, (oval_height, oval_width), mode='reflect', anti_aliasing=True)
+        kernel = resize(kernel, (oval_width, oval_height), mode='reflect', anti_aliasing=True)
+        #make it square
+        new_size = max(oval_width, oval_height)
+        new_size = 2 * new_size - 1 if new_size % 2 == 0 else new_size
+        new_array = np.zeros((new_size, new_size), dtype=kernel.dtype)
+        start_x = (new_size - oval_width) // 2
+        start_y = (new_size - oval_height) // 2
+        new_array[start_x:start_x + oval_width, start_y:start_y + oval_height] = kernel
+        kernel = new_array
+
+    
     center = len(kernel) // 2
     kernel[center, center] = 0  # Setze das Zentrum auf 0
     if width == 0:
@@ -259,43 +294,9 @@ def n2self_mask_mit_loch_center(radius, width, oval_height, oval_width):
         channel_to_mask -= 1
     return kernel
 
-def xcorr(x, y):
-    # implementation from https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277?file=26674424
-    # FFT of x and conjugation
-    X_bar = np.fft.rfft(x).conj()
-    Y = np.fft.rfft(y)
-    # Compute norm of data
-    norm_x_sq = np.sum(x**2)
-    norm_y_sq = np.sum(y**2)
-    norm = np.sqrt(norm_x_sq * norm_y_sq)
-    # Correlation coefficients
-    R = np.fft.irfft(X_bar * Y) / norm
-    # Return correlation coefficient
-    return np.max(R)
-def compute_xcorr_window(x):
-    # implementation from https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277?file=26674424
-    Nch = x.shape[0]
-    Cxy = np.zeros((Nch, Nch)) * np.nan
-    for i in range(Nch):
-        for j in range(i):
-            Cxy[i, j] = xcorr(x[i], x[j])
-    return np.nanmean(Cxy)
-def compute_moving_coherence(data, bin_size):
-    """ implementation from https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277?file=26674424
-    Args:
-    data: DAS data with shape (N_ch, N_t)
-    bin_size: Size of the moving window
-    """    
-    N_ch = data.shape[0]
-    cc = np.zeros(N_ch)
-    for i in range(N_ch):
-        start = max(0, i - bin_size // 2)
-        stop = min(i + bin_size // 2, N_ch)
-        ch_slice = slice(start, stop)
-        cc[i] = compute_xcorr_window(data[ch_slice])
-    return cc
 
-def save_example_wave(clean_das_original, model, device, writer, epoch, real_denoised=None, vmin=-1, vmax=1, mask_methode='original'):
+
+def save_example_wave(clean_das_original, model, device, writer, epoch, real_denoised=None, vmin=-1, vmax=1, mask_methode='channel_1'):
     SNRs = [0.1, 1, 10]
     all_noise_das = []
     all_denoised_das = []
@@ -318,7 +319,13 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
         all_noise_das = torch.stack(all_noise_das)
         all_denoised_das = torch.stack(all_denoised_das)
         amps = torch.stack(amps)
-        all_semblance = semblance(all_denoised_das.unsqueeze(1).to(device))
+        all_semblance = semblance(all_denoised_das.unsqueeze(1).to(device))#fast implementation without moving window correction
+        """
+        all_semblance = []
+        for das in all_denoised_das: #tqdm?
+            all_semblance.append(torch.from_numpy(moving_window_semblance(np.swapaxes(das.cpu().numpy(), 0, 1), window=(60//channel_spacing,25))))
+        all_semblance = torch.stack(all_semblance)
+        """
         #normalise for picture making
         clean_das = clean_das/amps[-1]
         all_noise_das = all_noise_das/amps[:,None,None]
@@ -347,7 +354,8 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
     else:
         clean_das = clean_das_original.detach().cpu().numpy()
         all_noise_das = clean_das_original.detach().cpu().numpy()
-        all_semblance = semblance(torch.from_numpy(real_denoised).to(device)).squeeze(0).cpu().numpy()
+        all_semblance = semblance(torch.from_numpy(real_denoised).to(device)).squeeze(0).cpu().numpy() #fast implementation without moving window correction
+        #all_semblance = moving_window_semblance(np.swapaxes(real_denoised, 0, 1))
         SNRs = ['original']
         channel_idx_1 = 920 // 5 #weil in der bild generierung jeder 5. Kanal überspringen wird
         channel_idx_2 = 3000 // 5
@@ -426,20 +434,40 @@ def calculate_loss(noise_image, model, batch_idx, masking_methode):
     device = noise_image.device
     mask = channelwise_mask(noise_image, width=maskChanels)
     masked_noise_image = (1-mask) * noise_image
-    if "same" in masking_methode:
+    if "random" in masking_methode:
         masked_noise_image += mask * torch.normal(0, 0.2, size=mask.shape).to(device)
-    elif "self" in masking_methode:    #machen mit circle und so wie im n2self paper
+    elif "circle" in masking_methode:    #machen mit circle und so wie im n2self paper
         _, r = masking_methode.split('_')
         r = int(r)
         nx = noise_image.shape[-2]
         if r*2 > nx:
             raise ValueError(f"radius {r} is to big for {nx} channels")
         masked_noise_image = interpolate_disk(noise_image, mask, r, maskChanels).float().to(device) #TODO:can be oval
+    elif "oval" in masking_methode:
+        _, w, h = masking_methode.split('_')
+        w = int(w)
+        h = int(h)
+        r = min(w,h)
+        nx = noise_image.shape[-2]
+        if r*2 > nx:
+            raise ValueError(f"radius {r} is to big for {nx} channels")
+        masked_noise_image = interpolate_disk(noise_image, mask, r, maskChanels, oval_height=h, oval_width=w).float().to(device) #TODO:can be oval
+    elif "channel" in masking_methode:
+        _, masked_channel_number = masking_methode.split('_')
+        masked_channel_number = int(masked_channel_number)
+        mask = channelwise_mask(noise_image, width=masked_channel_number)
+        masked_noise_image = (1-mask) * noise_image
+    elif "pixel" in masking_methode:
+        _, mask_percent = masking_methode.split('_')
+        mask_percent = int(mask_percent)
+        mask, _ = mask_random(noise_image, mask_percent, (1,1))
+        mask = mask.to(device)
+        masked_noise_image = (1-mask) * noise_image
     denoised = model(masked_noise_image)
     #loss_my = torch.nn.MSELoss()(denoised*(mask), noise_image*(mask))
     return torch.mean(torch.mean(mask * (denoised - noise_image)**2, dim=-1)), denoised, mask
 
-def train(model, device, dataLoader, optimizer, mode, writer, epoch, masking_methode='original'):
+def train(model, device, dataLoader, optimizer, mode, writer, epoch, masking_methode='channel_1'):
     global modi
     loss_log = []
     psnr_log = []
@@ -452,14 +480,6 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, masking_met
         noise_images = noise_images.to(device).type(torch.float32)
         std = std.to(device).type(torch.float32)
         amp = amp.to(device).type(torch.float32)
-
-        #reconstruct(model, device, noise_images, num_masked_channels=1, mask_methode='original')
-        #reconstruct(model, device, noise_images, num_masked_channels=1, mask_methode='n2same')
-        #reconstruct(model, device, noise_images, num_masked_channels=1, mask_methode='self_1')
-        #reconstruct(model, device, noise_images, num_masked_channels=1, mask_methode='self_2')
-        #reconstruct(model, device, noise_images, num_masked_channels=1, mask_methode='self_3')
-        #reconstruct(model, device, noise_images, num_masked_channels=2, mask_methode='original')
-        #reconstruct(model, device, noise_images, num_masked_channels=2, mask_methode='self_2')
 
         if mode == "train":
             model.train()
@@ -521,7 +541,7 @@ def main(argv=[]):
     strain_train_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
     strain_test_dir = "data/DAS/SIS-rotated_test_50Hz.npy"
 
-    print("lade Datensätze ...")
+    print("lade Synthetische Datensätze ...")
     eq_strain_rates = np.load(strain_train_dir)
     # Normalise waveforms
     N_ch, N_t = eq_strain_rates.shape
@@ -543,12 +563,13 @@ def main(argv=[]):
 
 
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=300*batchsize)
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=gauge_length, size=30*batchsize)
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=300*batchsize)
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
 
     #---------------real daten laden----------------
-    """
+    #"""
+    print("lade Reale Datensätze ...")
     train_path = "Server_DAS/real_train/"
     test_path = "Server_DAS/real_test/"
     train_path = sorted([train_path + f for f in os.listdir(train_path)])
@@ -595,13 +616,13 @@ def main(argv=[]):
     real_dataset = RealDAS(train_real_data, nx=dasChanelsTrain, nt=nt, size=300*batchsize)
     real_dataset_val = RealDAS(val_real_data, nx=dasChanelsVal, nt=nt, size=20*batchsize)
     real_dataset_test = RealDAS(test_real_data, nx=dasChanelsTest, nt=nt, size=20*batchsize)
-    """
+    #"""
     print("Datensätze geladen!")
 
     wave = eq_strain_rates_test[6][4200:6248]
-    picture_DAS_syn = gerate_spezific_das(wave, nx=300, nt=2048, eq_slowness=1/(500), gauge=gauge_length, fs=sampling)
+    picture_DAS_syn = gerate_spezific_das(wave, nx=300, nt=2048, eq_slowness=1/(500), gauge=channel_spacing, fs=sampling)
     picture_DAS_syn = picture_DAS_syn.to(device).type(torch.float32)
-    #picture_DAS_real1 = torch.from_numpy(test_real_data[2][:,4500:]).to(device).type(torch.float32)
+    picture_DAS_real1 = torch.from_numpy(test_real_data[2][:,4500:]).to(device).type(torch.float32)
 
     
   
@@ -610,19 +631,16 @@ def main(argv=[]):
     else:
         store_path_root = log_files()
     global modi
-    #svae best values in [[train syn, train real], [val syn, val real], [test syn, test real]] structure
-    best_psnr = [[-1,-1],[-1,-1],[-1,-1]] #higher = better
-    best_sv = [[-1,-1],[-1,-1],[-1,-1]] #lower = better
-    best_lsd = [[-1,-1],[-1,-1],[-1,-1]] #lower = better (Ruaschsignal ähnlich zur rekonstruction im Frequenzbereich)
-    best_coherence = [[-1,-1],[-1,-1],[-1,-1]] #1 = perfekte Korrelation zwischen Rauschsignale und Rekonstruktion; 0 = keine Korrelation
-
-    masking_methodes=['original', 'same', 'self_2', 'self_3']
-    for i in range(3):
-        i = i+2
+   
+    #masking_methodes=['original', 'same', 'self_2', 'self_3']
+    masking_methodes=['channel_1', 'channel_2', 'channel_3', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5']#, 'pixel_10']
+    end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
+                                                                   ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
+    for i in range(len(masking_methodes)):
         mask_methode = masking_methodes[i]
         print(mask_methode)
 
-        store_path = Path(os.path.join(store_path_root, f"n2self-{modi}"))
+        store_path = Path(os.path.join(store_path_root, f"n2self-{mask_methode}"))
         store_path.mkdir(parents=True, exist_ok=True)
         tmp = Path(os.path.join(store_path, "tensorboard"))
         tmp.mkdir(parents=True, exist_ok=True)
@@ -639,7 +657,13 @@ def main(argv=[]):
         #else:
             #model = Sebastian_N2SUNet(1,1,4).to(device)
 
-        
+        #svae best values in [[train syn, train real], [val syn, val real], [test syn, test real]] structure
+        last_loss = [[-1,-1],[-1,-1],[-1,-1]] #lower = better
+        best_psnr = [[-1,-1],[-1,-1],[-1,-1]] #higher = better
+        best_sv = [[-1,-1],[-1,-1],[-1,-1]] #lower = better
+        best_lsd = [[-1,-1],[-1,-1],[-1,-1]] #lower = better (Ruaschsignal ähnlich zur rekonstruction im Frequenzbereich)
+        best_coherence = [[-1,-1],[-1,-1],[-1,-1]] #1 = perfekte Korrelation zwischen Rauschsignale und Rekonstruktion; 0 = keine Korrelation
+
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         """
         if modi == 2:
@@ -679,7 +703,7 @@ def main(argv=[]):
             writer.add_scalar('Lernrate', current_lr, epoch)
 
             if epoch % 50 == 0:
-                model_save_path = os.path.join(store_path, "models", f"chk-n2self{modi}_syn_{epoch}.pth")
+                model_save_path = os.path.join(store_path, "models", f"chk-n2self_{mask_methode}_syn_{epoch}.pth")
                 torch.save(model.state_dict(), model_save_path)
 
             if statistics.mean(psnr) > best_psnr[0][0]:
@@ -706,16 +730,19 @@ def main(argv=[]):
         writer.add_scalar('Scaled Variance Test', statistics.mean(scaledVariance_log_test), 0)
         writer.add_scalar('LSD Test', statistics.mean(lsd_log_test), 0)
         writer.add_scalar('Korelation Test', statistics.mean(coherence_log_test), 0)
-        model_save_path = os.path.join(store_path, "models", f"last-model-n2self{modi}_syn.pth")
+        model_save_path = os.path.join(store_path, "models", f"last-model-n2self_{mask_methode}_syn.pth")
         torch.save(model.state_dict(), model_save_path)
         best_psnr[2][0] = statistics.mean(psnr_test)
         best_sv[2][0] = statistics.mean(scaledVariance_log_test)
         best_lsd[2][0] = statistics.mean(lsd_log_test)
         best_coherence[2][0] = statistics.mean(coherence_log_test)
+        last_loss[0][0] = loss[-1]
+        last_loss[1][0] = loss_val[-1]
+        last_loss[2][0] = loss_test[-1]
         #"""
 
         #-------------real data----------------
-
+        #"""
         print("real data")
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         dataLoader = DataLoader(real_dataset, batch_size=batchsize, shuffle=True)
@@ -742,15 +769,15 @@ def main(argv=[]):
             writer.add_scalar('LSD Val', statistics.mean(lsd_log_val), epoch+epochs)
             writer.add_scalar('Korelation Val', statistics.mean(coherence_log_val), epoch+epochs)
 
-            if epoch % 5 == 0  or epoch==epochs-1:
+            if epoch % 10 == 0  or epoch==epochs-1:
                 denoised1 = reconstruct(model, device, picture_DAS_real1.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode).to('cpu').detach().numpy()
                 save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised1[0][0], vmin=-1, vmax=1)
 
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar('Lernrate', current_lr, epoch+epochs)
 
-            if epoch % 10 == 0:
-                model_save_path = os.path.join(store_path, "models", f"chk-n2self{modi}_real_{epoch}.pth")
+            if epoch % 20 == 0:
+                model_save_path = os.path.join(store_path, "models", f"chk-n2self_{mask_methode}_real_{epoch}.pth")
                 torch.save(model.state_dict(), model_save_path)
 
             if statistics.mean(psnr) > best_psnr[0][1]:
@@ -777,14 +804,38 @@ def main(argv=[]):
         writer.add_scalar('Scaled Variance Test', statistics.mean(scaledVariance_log_test), 1)
         writer.add_scalar('LSD Test', statistics.mean(lsd_log_test), 1)
         writer.add_scalar('Korelation Test', statistics.mean(coherence_log_test), 1)
-        model_save_path = os.path.join(store_path, "models", f"last-model-n2self{modi}_real.pth")
+        model_save_path = os.path.join(store_path, "models", f"last-model-n2self_{mask_methode}_real.pth")
         torch.save(model.state_dict(), model_save_path)
         best_psnr[2][1] = statistics.mean(psnr_test)
         best_sv[2][1] = statistics.mean(scaledVariance_log_test)
         best_lsd[2][1] = statistics.mean(lsd_log_test)
         best_coherence[2][1] = statistics.mean(coherence_log_test)
+        last_loss[0][1] = loss[-1]
+        last_loss[1][1] = loss_val[-1]
+        last_loss[2][1] = loss_test[-1]
+        #"""
+
+        # Ergebnisse in den DataFrame einfügen
+        #'train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real'
+        #svae best values in [[train syn, train real], [val syn, val real], [test syn, test real]] structure
+        end_results.loc[:, (mask_methode, 'train syn')] = [last_loss[0][0], best_psnr[0][0], best_sv[0][0], best_lsd[0][0], best_coherence[0][0]]
+        end_results.loc[:, (mask_methode, 'train real')] = [last_loss[0][1], best_psnr[0][1], best_sv[0][1], best_lsd[0][1], best_coherence[0][1]]
+
+        end_results.loc[:, (mask_methode, 'val syn')] = [last_loss[1][0], best_psnr[1][0], best_sv[1][0], best_lsd[1][0], best_coherence[1][0]]
+        end_results.loc[:, (mask_methode, 'val real')] = [last_loss[1][1], best_psnr[1][1], best_sv[1][1], best_lsd[1][1], best_coherence[1][1]]
+
+        end_results.loc[:, (mask_methode, 'test syn')] = [last_loss[2][0], best_psnr[2][0], best_sv[2][0], best_lsd[2][0], best_coherence[2][0]]
+        end_results.loc[:, (mask_methode, 'test real')] = [last_loss[2][1], best_psnr[2][1], best_sv[2][1], best_lsd[2][1], best_coherence[2][1]]
         modi += 1
 
+    end_results.index = ['Last Loss', 
+                         'Best PSNR', 
+                         'Best Scaled Variance', 
+                         'Best LSD',
+                         'Best Coherence']
+                         
+    file = os.path.join(store_path_root, 'best_results.csv')
+    end_results.to_csv(file, index=True)
     print("n2self fertig")
     return best_psnr, best_sv, best_lsd, best_coherence
 

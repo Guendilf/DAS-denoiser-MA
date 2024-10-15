@@ -88,7 +88,7 @@ def generate_das_plot3(clean_das, all_noisy_waves, all_denoised_waves, all_sembl
     #vmax = np.percentile(clean_das_cpu, 91)
 
     # Erstelle das Grid (3 Spalten und 8 Zeilen)
-    fig, axs = plt.subplots(3, 4, figsize=(15, 10), gridspec_kw={'width_ratios': [1, 1, 1, 1.1], 'height_ratios': [1, 1, 1]})
+    fig, axs = plt.subplots(3, 5, figsize=(17, 10), gridspec_kw={'width_ratios': [1, 1, 1, 1.1, 1.1], 'height_ratios': [1, 1, 1]})
 
     # Spalte 1: Clean DAS (mittig, über vier Zeilen)
     axs[1, 0].imshow(clean_das_cpu, aspect='auto', origin='lower', vmin=vmin, vmax=vmax, cmap='seismic', interpolation="antialiased", rasterized=True)
@@ -118,14 +118,23 @@ def generate_das_plot3(clean_das, all_noisy_waves, all_denoised_waves, all_sembl
             axs[i, 2].set_xlabel('Zeit (s)')
             axs[i, 2].set_ylabel('Kanal Index')
 
-    #Spalte 4: Semblance (SNR 0.1 und SNR 10 in Zeilen)
+    #Spalte 4: Local SNR with Semblance (SNR 0.1 und SNR 10 in Zeilen)
     for i, snr_idx in enumerate(snr_indices):
-        im = axs[i, 3].imshow(semblance_cpu[i],  origin='lower', interpolation='nearest', cmap='viridis', aspect='auto')
+        im = axs[i, 3].imshow(semblance_cpu[i] / (1.0 - semblance_cpu[i]),  origin='lower', interpolation='nearest', cmap='viridis', aspect='auto')
         fig.colorbar(im, ax=axs[i, 3], orientation='vertical')
-        axs[i, 3].set_title(f'Semblance (SNR={snr_idx})')
+        axs[i, 3].set_title(f'Lokales SNR (Noise SNR={snr_idx})')
         if i == 2:# Für den untersten Plot die Linie und die Beschriftung anzeigen
             axs[i, 3].set_xlabel('Zeit (s)')
             axs[i, 3].set_ylabel('Kanal Index')
+
+    #Spalte 5: Semblance (SNR 0.1 und SNR 10 in Zeilen)
+    for i, snr_idx in enumerate(snr_indices):
+        im = axs[i, 4].imshow(semblance_cpu[i],  origin='lower', interpolation='nearest', cmap='viridis', aspect='auto')
+        fig.colorbar(im, ax=axs[i, 4], orientation='vertical')
+        axs[i, 4].set_title(f'Semblance (SNR={snr_idx})')
+        if i == 2:# Für den untersten Plot die Linie und die Beschriftung anzeigen
+            axs[i, 4].set_xlabel('Zeit (s)')
+            axs[i, 4].set_ylabel('Kanal Index')
 
     # Lege das Layout fest und zeige den Plot
     plt.tight_layout()

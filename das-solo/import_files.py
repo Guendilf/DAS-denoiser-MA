@@ -485,7 +485,7 @@ def mask_random(img, maskamount, mask_size=(4,4)):
         mask (tensor): masked pixel are set to 1 (b,c,w,h)
         masked pixel (int): pixel that should be masked
     """
-    total_area = img.shape[-1] * img.shape[-2] * img.shape[-3]
+    total_area = img.shape[-1] * img.shape[-2]
     #if amount of pixel shoulld be masked
     if isinstance(maskamount, int):
         mask_percentage = maskamount*1/total_area
@@ -535,23 +535,4 @@ def select_random_pixels(image_shape, num_masked_pixels):
     return mask
 
 
-#                  (Sum[Signal(t)])**2
-# Semblance = -----------------------------
-#               Kanäle * Sum[Signal(t)**2]
 
-def semblance(data, window_size=(15,25)):
-    """Return torch.tensor(b,c,t)"""
-    if len(data.shape) == 3:
-        print("data shape needs to be (b,1,c,t) or (c,t) and not (?,c,t)")
-    elif len(data.shape) == 2:
-        data = data.unsqueeze(0).unsqueeze(0)
-    batch, _, channels, time = data.shape
-    semblance_vals = torch.zeros((batch, channels - window_size[0] + 1, time - window_size[1] + 1), device=data.device)    
-
-    #more dimensions for window sliding
-    unfolded = torch.nn.functional.unfold(data, kernel_size=(window_size[0], window_size[1])).view(batch, window_size[0], window_size[1], channels - window_size[0] + 1, time - window_size[1] + 1)
-    sum_signals = (unfolded.sum(dim=1)**2).sum(dim=1)
-    scaled_sum = (unfolded**2).sum(dim=1).sum(dim=1)
-    
-    semblance_vals = sum_signals / (window_size[0] * scaled_sum)
-    return semblance_vals
