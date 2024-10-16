@@ -181,12 +181,16 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
     masks[:, :, start_idx:end_idx, :] = 0
     if "pixel" in mask_methode:
         _, mask_percent = mask_methode.split('_')
-        mask_percent = int(mask_percent)
-        masks, _ = mask_random(data, mask_percent, (1,1))
-        masks = masks.to(device)
-        masks = 1-masks
-
-    if "channel" in mask_methode:
+        mask_percent = float(mask_percent)
+        pixel_mask, _ = mask_random(data_pad.unsqueeze(0).unsqueeze(0), mask_percent, (1,1)) #data.shape=(c,t)
+        pixel_mask = pixel_mask.to(device)
+        pixel_mask = 1-pixel_mask
+        if nx == pixel_mask.shape[-2]:
+            pixel_mask = pixel_mask.expand(NX, 1, nx, nt)
+        else:
+            pixel_mask = pixel_mask.squeeze(0).squeeze(0)
+        
+    if "channel" or 'pixel' in mask_methode:
         pass
     elif "random" in mask_methode:
         random_values = torch.normal(0, 0.2, size=masks.shape).to(device) #shape wie noisy_samples
@@ -209,8 +213,12 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
     #plt.show()
     for i in range(num_patches_t):    
         noisy_samples = torch.zeros((NX, 1, nx, nt)).to(device)
+        if "pixel" in mask_methode and nx == pixel_mask.shape[-2]:
+            masks = torch.zeros((NX, 1, nx, nt)).to(device)
         for j in range(NX):
             noisy_samples[j] = data_pad[j:j+nx, i*stride:i*stride + nt]
+            if "pixel" in mask_methode and nx == pixel_mask.shape[-2]:
+                masks[j] = pixel_mask[j:j+nx, i*stride:i*stride + nt]
         if "circle" in mask_methode:
             x = interpolate_disk(noisy_samples, masks, r, num_masked_channels).float().to(device)
         elif "oval" in mask_methode:
@@ -459,8 +467,8 @@ def calculate_loss(noise_image, model, batch_idx, masking_methode):
         masked_noise_image = (1-mask) * noise_image
     elif "pixel" in masking_methode:
         _, mask_percent = masking_methode.split('_')
-        mask_percent = int(mask_percent)
-        mask, _ = mask_random(noise_image, mask_percent, (1,1))
+        mask_percent = float(mask_percent)
+        mask, _ = mask_random(noise_image, mask_percent, (1,1)) #noise.shape=(batch, 1, nx, nt)
         mask = mask.to(device)
         masked_noise_image = (1-mask) * noise_image
     denoised = model(masked_noise_image)
@@ -542,6 +550,7 @@ def main(argv=[]):
     strain_test_dir = "data/DAS/SIS-rotated_test_50Hz.npy"
 
     print("lade Synthetische Datensätze ...")
+    #"""
     eq_strain_rates = np.load(strain_train_dir)
     # Normalise waveforms
     N_ch, N_t = eq_strain_rates.shape
@@ -566,7 +575,7 @@ def main(argv=[]):
     dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=300*batchsize)
     dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
     dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
-
+    #"""
     #---------------real daten laden----------------
     #"""
     print("lade Reale Datensätze ...")
@@ -633,7 +642,7 @@ def main(argv=[]):
     global modi
    
     #masking_methodes=['original', 'same', 'self_2', 'self_3']
-    masking_methodes=['channel_1', 'channel_2', 'channel_3', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5']#, 'pixel_10']
+    masking_methodes=['channel_1', 'channel_2', 'channel_3', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5', 'pixel_10']
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
     for i in range(len(masking_methodes)):
@@ -676,9 +685,9 @@ def main(argv=[]):
 
         for epoch in tqdm(range(epochs)):
             #break
-            #save_example_wave(picture_DAS_syn, model, device, writer, epoch)
+            #with torch.no_grad():
+                #save_example_wave(picture_DAS_syn, model, device, writer, epoch, mask_methode=mask_methode)
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, masking_methode=mask_methode)
-
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
             writer.add_scalar('PSNR Train', statistics.mean(psnr), epoch)
             writer.add_scalar('Scaled Variance Train', statistics.mean(scaledVariance_log), epoch)
@@ -697,7 +706,8 @@ def main(argv=[]):
             writer.add_scalar('Korelation Val', statistics.mean(coherence_log_val), epoch)
 
             if epoch % 5 == 0  or epoch==epochs-1:
-                save_example_wave(picture_DAS_syn, model, device, writer, epoch)
+                with torch.no_grad():
+                    save_example_wave(picture_DAS_syn, model, device, writer, epoch, mask_methode=mask_methode)
 
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar('Lernrate', current_lr, epoch)
@@ -749,6 +759,8 @@ def main(argv=[]):
         dataLoader_validate = DataLoader(real_dataset_val, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(real_dataset_test, batch_size=batchsize, shuffle=False)
         for epoch in tqdm(range(realEpochs)):
+            #with torch.no_grad():
+                #denoised1 = reconstruct(model, device, picture_DAS_real1.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode).to('cpu').detach().numpy()
 
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch+epochs, masking_methode=mask_methode)
 
@@ -770,8 +782,9 @@ def main(argv=[]):
             writer.add_scalar('Korelation Val', statistics.mean(coherence_log_val), epoch+epochs)
 
             if epoch % 10 == 0  or epoch==epochs-1:
-                denoised1 = reconstruct(model, device, picture_DAS_real1.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode).to('cpu').detach().numpy()
-                save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised1[0][0], vmin=-1, vmax=1)
+                with torch.no_grad():
+                    denoised1 = reconstruct(model, device, picture_DAS_real1.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode).to('cpu').detach().numpy()
+                    save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised1[0][0], vmin=-1, vmax=1, mask_methode=mask_methode)
 
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar('Lernrate', current_lr, epoch+epochs)
