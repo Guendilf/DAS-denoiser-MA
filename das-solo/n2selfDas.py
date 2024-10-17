@@ -44,7 +44,7 @@ batchnorm = False
 save_model = False
 
 gauge_length = 10
-channel_spacing = 4#oder 19.2
+channel_spacing = 20#oder 19.2
 snr = (-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
 slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
 sampling = 50.0
@@ -106,6 +106,14 @@ def reconstruct(model, device, data, nx=11, nt=2048, batch_size=32, num_masked_c
     if "channel" in mask_methode:
         _, num_masked_channels = mask_methode.split('_')
         num_masked_channels = int(num_masked_channels)
+    elif "pixel" in mask_methode:
+        shape_len = len(data.shape)
+        if shape_len == 4:
+            return model(data)
+        if shape_len == 3:
+            return model(data.unsqueeze(1)) #data.shape=(b,c,t)
+        if shape_len == 2:
+            return model(data.unsqueeze(0).unsqueeze(0))
     recs = []
     for das in datas:
         recs.append(channelwise_reconstruct_part(model, device, das[0], nx, nt, num_masked_channels, mask_methode))
@@ -179,21 +187,19 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
     end_idx = min(center_idx + half_mask + (num_masked_channels % 2), nx) #min(5+1+(3%2), 11) = 7
     # num mask chanel = 1 -> 5-6  num mask chanel = 2 -> 4-6  num mask chanel = 3 -> 4-7  num mask chanel = 4 -> 5-6
     masks[:, :, start_idx:end_idx, :] = 0
-    if "pixel" in mask_methode:
-        _, mask_percent = mask_methode.split('_')
-        mask_percent = float(mask_percent)
-        pixel_mask, _ = mask_random(data_pad.unsqueeze(0).unsqueeze(0), mask_percent, (1,1)) #data.shape=(c,t)
-        pixel_mask = pixel_mask.to(device)
-        pixel_mask = 1-pixel_mask
-        if nx == pixel_mask.shape[-2]:
-            pixel_mask = pixel_mask.expand(NX, 1, nx, nt)
-        else:
-            pixel_mask = pixel_mask.squeeze(0).squeeze(0)
+    #if "pixel" in mask_methode:
+        #_, mask_percent = mask_methode.split('_')
+        #mask_percent = float(mask_percent)
+        #pixel_mask, _ = mask_random(data_pad.unsqueeze(0).unsqueeze(0), mask_percent, (1,1)) #data.shape=(c,t)
+        #pixel_mask = pixel_mask.to(device)
+        #pixel_mask = 1-pixel_mask
+        #if nx == pixel_mask.shape[-2]:
+            #pixel_mask = pixel_mask.expand(NX, 1, nx, nt)
+        #else:
+            #pixel_mask = pixel_mask.squeeze(0).squeeze(0)
         
     if "channel" or 'pixel' in mask_methode:
         pass
-    elif "random" in mask_methode:
-        random_values = torch.normal(0, 0.2, size=masks.shape).to(device) #shape wie noisy_samples
     elif "circle" in mask_methode:    #machen mit circle und so wie im n2self paper
         _, r = mask_methode.split('_')
         r = int(r)
@@ -213,17 +219,18 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
     #plt.show()
     for i in range(num_patches_t):    
         noisy_samples = torch.zeros((NX, 1, nx, nt)).to(device)
-        if "pixel" in mask_methode and nx == pixel_mask.shape[-2]:
-            masks = torch.zeros((NX, 1, nx, nt)).to(device)
+        #if "pixel" in mask_methode and nx == pixel_mask.shape[-2]:
+            #masks = torch.zeros((NX, 1, nx, nt)).to(device)
         for j in range(NX):
             noisy_samples[j] = data_pad[j:j+nx, i*stride:i*stride + nt]
-            if "pixel" in mask_methode and nx == pixel_mask.shape[-2]:
-                masks[j] = pixel_mask[j:j+nx, i*stride:i*stride + nt]
+            #if "pixel" in mask_methode and nx == pixel_mask.shape[-2]:
+                #masks[j] = pixel_mask[j:j+nx, i*stride:i*stride + nt]
         if "circle" in mask_methode:
             x = interpolate_disk(noisy_samples, masks, r, num_masked_channels).float().to(device)
         elif "oval" in mask_methode:
             x = interpolate_disk(noisy_samples, masks, r, maskChanels, oval_height=h, oval_width=w).float().to(device)
         elif "random" in mask_methode:
+            random_values = torch.normal(0, 0.2, size=masks.shape).to(device) #shape wie noisy_samples
             x = (noisy_samples * masks + random_values*(1-masks)).float().to(device)
         else:
             x = (noisy_samples * masks).float().to(device)
@@ -242,6 +249,7 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
         elif "oval" in mask_methode:
             x = interpolate_disk(noisy_samples, masks, r, maskChanels, oval_height=h, oval_width=w).float().to(device)
         elif "random" in mask_methode:
+            random_values = torch.normal(0, 0.2, size=masks.shape).to(device) #shape wie noisy_samples
             x = (noisy_samples * masks + random_values*(1-masks)).float().to(device)
         else:
             x = (noisy_samples * masks).float().to(device)
@@ -588,7 +596,8 @@ def main(argv=[]):
     for i, p in enumerate(train_path):
         with h5py.File(p, 'r') as hf:
             DAS_sample = hf['DAS'][81:]
-            DAS_sample = DAS_sample[::5] #if dx = 20
+            if channel_spacing == 20:
+                DAS_sample = DAS_sample[::5] #if dx = 20
             train_real_data.append(DAS_sample)
     train_real_data = np.stack(train_real_data)
     gutter = 1000
@@ -608,7 +617,8 @@ def main(argv=[]):
     for i, p in enumerate(test_paths):
         with h5py.File(p, 'r') as hf:
             DAS_sample = hf['DAS'][81:]
-            DAS_sample = DAS_sample[::5] #if dx = 20
+            if channel_spacing == 20:
+                DAS_sample = DAS_sample[::5] #if dx = 20
             test_real_data.append(DAS_sample)
     test_real_data = np.stack(test_real_data)
     gutter = 1000
@@ -641,8 +651,8 @@ def main(argv=[]):
         store_path_root = log_files()
     global modi
    
-    #masking_methodes=['original', 'same', 'self_2', 'self_3']
-    masking_methodes=['channel_1', 'channel_2', 'channel_3', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5', 'pixel_10']
+    #masking_methodes=['channel_1', 'channel_2', 'channel_3', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5', 'pixel_10']
+    masking_methodes=['pixel_10 richtig', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5']
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
     for i in range(len(masking_methodes)):

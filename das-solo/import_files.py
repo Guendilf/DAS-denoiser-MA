@@ -535,4 +535,19 @@ def select_random_pixels(image_shape, num_masked_pixels):
     return mask
 
 
+def tv_norm(x):
+    """
+    Args:
+        x: torch tensor to calculate its total variation
+    Return:
+        avarge total variation (avarge tv for eevery pixel)
+    """
+    h_diff = x[:, :, 1:, :] - x[:, :, :-1, :]
+    w_diff = x[:, :, :, 1:] - x[:, :, :, :-1]
 
+    h_diff_abs = torch.abs(h_diff)
+    w_diff_abs = torch.abs(w_diff)
+
+    tv_norm = torch.sum(h_diff_abs) + torch.sum(w_diff_abs)
+    #durchschnitt bilden
+    return tv_norm / (np.prod(x.shape))
