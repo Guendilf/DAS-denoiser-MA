@@ -652,9 +652,15 @@ def main(argv=[]):
     global modi
    
     #masking_methodes=['channel_1', 'channel_2', 'channel_3', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5', 'pixel_10']
-    masking_methodes=['richtig-pixel_10', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5']
+    masking_methodes=['circle_2', 'circle_3', 'oval_2_4', 'oval_3_5']#richtig-pixel_10
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
+    end_results.index = ['Last Loss', 
+                         'Best PSNR', 
+                         'Best Scaled Variance', 
+                         'Best LSD',
+                         'Best Coherence']
+    csv_file = os.path.join(store_path_root, 'best_results.csv')
     for i in range(len(masking_methodes)):
         mask_methode = masking_methodes[i]
         print(mask_methode)
@@ -849,16 +855,9 @@ def main(argv=[]):
 
         end_results.loc[:, (mask_methode, 'test syn')] = [last_loss[2][0], best_psnr[2][0], best_sv[2][0], best_lsd[2][0], best_coherence[2][0]]
         end_results.loc[:, (mask_methode, 'test real')] = [last_loss[2][1], best_psnr[2][1], best_sv[2][1], best_lsd[2][1], best_coherence[2][1]]
+        end_results.to_csv(csv_file, index=True)
         modi += 1
 
-    end_results.index = ['Last Loss', 
-                         'Best PSNR', 
-                         'Best Scaled Variance', 
-                         'Best LSD',
-                         'Best Coherence']
-                         
-    file = os.path.join(store_path_root, 'best_results.csv')
-    end_results.to_csv(file, index=True)
     print("n2self fertig")
     return best_psnr, best_sv, best_lsd, best_coherence
 
