@@ -652,7 +652,7 @@ def main(argv=[]):
     global modi
    
     #masking_methodes=['channel_1', 'channel_2', 'channel_3', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5', 'pixel_10']
-    masking_methodes=['pixel_10 richtig', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5']
+    masking_methodes=['richtig-pixel_10', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5']
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
     for i in range(len(masking_methodes)):
