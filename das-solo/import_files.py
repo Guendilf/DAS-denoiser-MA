@@ -122,28 +122,33 @@ class U_Net(nn.Module):
 
     def forward(self, x):
         # Encoder
-        skip1 = self.encoder1(x)  # (N, 4, 11, 2048)
-        skip2 = self.encoder2(skip1)  # (N, 8, 11, 512)
-        skip3 = self.encoder3(skip2)  # (N, 16, 11, 128)
-        skip4 = self.encoder4(skip3)  # (N, 32, 11, 32)
-        result = self.encoder5(skip4)  # (N, 64, 11, 8)
+        skip1 = self.encoder1(x)  # (N, 4, 11, 2048)        real: (N, 4, 1482, 7500)
+        skip2 = self.encoder2(skip1)  # (N, 8, 11, 512)     real: (N, 8, 1482, 1875)
+        skip3 = self.encoder3(skip2)  # (N, 16, 11, 128)    real: (N, 16, 1482, 468)
+        skip4 = self.encoder4(skip3)  # (N, 32, 11, 32)     real: (N, 32, 1482, 117)
+        result = self.encoder5(skip4)  # (N, 64, 11, 8)     real: (N, 64, 1482, 29)
         #print(x.shape)
         #print(skip1.shape)
         #print(skip2.shape) 
         #print(skip3.shape) 
         #print(skip4.shape)
         #print(result.shape)
-
+        #print()
         # Decoder with Skip Connections
         if self.skipLast:
             result = self.decoder1(result, skip4) # (N, 512, 16, 16  
         else:
             result = self.decoder1(result) # (N, 512, 16, 16)
+        #print(result.shape)
         result = self.decoder2(result, skip3)  # (N, 256, 32, 32)
+        #print(result.shape)
         result = self.decoder3(result, skip2)  # (N, 128, 64, 64)
+        #print(result.shape)
         result = self.decoder4(result, skip1)  # (N, 64, 128, 128)
+        #print(result.shape)
         
         result = self.final_conv(result)  # (N, 3, 128, 128)
+        #print(result.shape)
         return result
 
 class down(nn.Module):

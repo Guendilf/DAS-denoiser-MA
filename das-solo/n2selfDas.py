@@ -106,17 +106,13 @@ def reconstruct(model, device, data, nx=11, nt=2048, batch_size=32, num_masked_c
     if "channel" in mask_methode:
         _, num_masked_channels = mask_methode.split('_')
         num_masked_channels = int(num_masked_channels)
-    elif "pixel" in mask_methode:
-        shape_len = len(data.shape)
-        if shape_len == 4:
-            return model(data)
-        if shape_len == 3:
-            return model(data.unsqueeze(1)) #data.shape=(b,c,t)
-        if shape_len == 2:
-            return model(data.unsqueeze(0).unsqueeze(0))
+
     recs = []
     for das in datas:
-        recs.append(channelwise_reconstruct_part(model, device, das[0], nx, nt, num_masked_channels, mask_methode))
+        if 'pixel' in mask_methode:
+            recs.append(model(das.unsqueeze(0).to(device)).squeeze(0).squeeze(0))
+        else:
+            recs.append(channelwise_reconstruct_part(model, device, das[0], nx, nt, num_masked_channels, mask_methode)) #das.shape=(1,nx,nt)
     return torch.stack(recs).unsqueeze(1).to(device)
 def channelwise_reconstruct_part_original_sebastian(model, device, data, nx, nt): # nx=11, nt=2048 
     NX, NT = data.shape
@@ -177,9 +173,9 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
     
     lower_res = int(np.floor(nx/2))
     upper_res = int(np.ceil(nx/2))
-    data_pad = torch.nn.functional.pad(data, (0,0,lower_res, upper_res), mode='constant')
+    data_pad = torch.nn.functional.pad(data, (0,0,lower_res, upper_res), mode='constant') #shape=(311,2048)
     
-    masks = torch.ones((NX, 1, nx, nt)).to(device)
+    masks = torch.ones((NX, 1, nx, nt)).to(device) #shape=(300,1,11,2048)
     #amount of masked channels
     center_idx = nx // 2 #11//2 = 5
     half_mask = num_masked_channels // 2 #3//2 = 1
@@ -187,18 +183,8 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
     end_idx = min(center_idx + half_mask + (num_masked_channels % 2), nx) #min(5+1+(3%2), 11) = 7
     # num mask chanel = 1 -> 5-6  num mask chanel = 2 -> 4-6  num mask chanel = 3 -> 4-7  num mask chanel = 4 -> 5-6
     masks[:, :, start_idx:end_idx, :] = 0
-    #if "pixel" in mask_methode:
-        #_, mask_percent = mask_methode.split('_')
-        #mask_percent = float(mask_percent)
-        #pixel_mask, _ = mask_random(data_pad.unsqueeze(0).unsqueeze(0), mask_percent, (1,1)) #data.shape=(c,t)
-        #pixel_mask = pixel_mask.to(device)
-        #pixel_mask = 1-pixel_mask
-        #if nx == pixel_mask.shape[-2]:
-            #pixel_mask = pixel_mask.expand(NX, 1, nx, nt)
-        #else:
-            #pixel_mask = pixel_mask.squeeze(0).squeeze(0)
-        
-    if "channel" or 'pixel' in mask_methode:
+           
+    if ("channel") in mask_methode:
         pass
     elif "circle" in mask_methode:    #machen mit circle und so wie im n2self paper
         _, r = mask_methode.split('_')
@@ -210,19 +196,18 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
         w = int(w)
         h = int(h)
         r = min(w,h)
-        nx = data.shape[-2]
         if r*2 > nx:
             raise ValueError(f"radius {r} is to big for {nx} channels")
     else:
         raise ValueError("mask_methode not known")
     #plt.imshow(masks[0][0].detach().cpu().numpy(), origin='lower', interpolation='nearest', cmap='seismic', aspect='auto')
     #plt.show()
-    for i in range(num_patches_t):    
-        noisy_samples = torch.zeros((NX, 1, nx, nt)).to(device)
+    for i in range(num_patches_t): #1
+        noisy_samples = torch.zeros((NX, 1, nx, nt)).to(device) #shape=(300,1,11,2048)
         #if "pixel" in mask_methode and nx == pixel_mask.shape[-2]:
             #masks = torch.zeros((NX, 1, nx, nt)).to(device)
-        for j in range(NX):
-            noisy_samples[j] = data_pad[j:j+nx, i*stride:i*stride + nt]
+        for j in range(NX): #NX = 300
+            noisy_samples[j] = data_pad[j:j+nx, i*stride:i*stride + nt] #für j = 299 ist data_pas.shape = (11, 2048)
             #if "pixel" in mask_methode and nx == pixel_mask.shape[-2]:
                 #masks[j] = pixel_mask[j:j+nx, i*stride:i*stride + nt]
         if "circle" in mask_methode:
@@ -251,6 +236,8 @@ def channelwise_reconstruct_part(model, device, data, nx, nt, num_masked_channel
         elif "random" in mask_methode:
             random_values = torch.normal(0, 0.2, size=masks.shape).to(device) #shape wie noisy_samples
             x = (noisy_samples * masks + random_values*(1-masks)).float().to(device)
+        elif 'pixel' in mask_methode: #no masking, just model
+            x = noisy_samples.float().to(device)
         else:
             x = (noisy_samples * masks).float().to(device)
         out = (model(x) * (1 - masks)).detach().cpu()
@@ -641,7 +628,7 @@ def main(argv=[]):
     wave = eq_strain_rates_test[6][4200:6248]
     picture_DAS_syn = gerate_spezific_das(wave, nx=300, nt=2048, eq_slowness=1/(500), gauge=channel_spacing, fs=sampling)
     picture_DAS_syn = picture_DAS_syn.to(device).type(torch.float32)
-    picture_DAS_real1 = torch.from_numpy(test_real_data[2][:,4500:]).to(device).type(torch.float32)
+    picture_DAS_real1 = torch.from_numpy(test_real_data[2][:,4576:]).to(device).type(torch.float32)
 
     
   
@@ -653,6 +640,7 @@ def main(argv=[]):
    
     #masking_methodes=['channel_1', 'channel_2', 'channel_3', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5', 'pixel_10']
     masking_methodes=['circle_2', 'circle_3', 'oval_2_4', 'oval_3_5']#richtig-pixel_10
+    masking_methodes=['richtig-pixel_10','oval_2_4', 'oval_3_5', ]
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
     csv_file = os.path.join(store_path_root, 'best_results.csv')
@@ -698,6 +686,7 @@ def main(argv=[]):
             #break
             #with torch.no_grad():
                 #save_example_wave(picture_DAS_syn, model, device, writer, epoch, mask_methode=mask_methode)
+            #break
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, masking_methode=mask_methode)
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
             writer.add_scalar('PSNR Train', statistics.mean(psnr), epoch)
