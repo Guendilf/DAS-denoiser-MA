@@ -60,7 +60,7 @@ def semblance(data, window_size=(15,25), moveout=False):
         #data = moveout_correction(data, window_size)
         raise ValueError(f"moveout ist für diese Methode nicht implementiert")
     batch, _, channels, time = data.shape
-    semblance_vals = torch.zeros((batch, channels - window_size[0] + 1, time - window_size[1] + 1), device=data.device)    
+    semblance_vals = torch.zeros((batch, channels - window_size[0] + 1, time - window_size[1] + 1), device=data.device)
 
     #more dimensions for window sliding
     unfolded = torch.nn.functional.unfold(data, kernel_size=(window_size[0], window_size[1])).view(batch, window_size[0], window_size[1], channels - window_size[0] + 1, time - window_size[1] + 1)
