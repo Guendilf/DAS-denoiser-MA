@@ -297,8 +297,8 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         #cc-gain
         tmp = []
         for i in range(clean.shape[0]):
-            cc_clean = compute_moving_coherence(clean[i][0].cpu().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
-            cc_rec = compute_moving_coherence(denoised[i][0].cpu().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
+            cc_clean = compute_moving_coherence(clean[i][0].cpu().detach().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
+            cc_rec = compute_moving_coherence(denoised[i][0].cpu().detach().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
             tmp.append(np.mean(cc_rec / cc_clean))
         #log data
         ccGain_log.append(round(np.mean(tmp),3))
