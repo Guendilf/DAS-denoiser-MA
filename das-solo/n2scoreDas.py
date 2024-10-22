@@ -185,10 +185,10 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
         mse = torch.mean((clean_das-all_denoised_das[i])**2)
         psnr = 10 * torch.log10((max_intensity ** 2) / mse)
         #calculatte scaled variance (https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277/1?file=26674421) In[13]
-        sv = torch.mean((all_noise_das[i] - all_denoised_das[i])**2, dim=-1) / torch.mean((all_noise_das[i])**2, dim=-1)
+        sv = torch.mean((clean_das - all_denoised_das[i])**2, dim=-1) / torch.mean((clean_das)**2, dim=-1)
         sv = torch.mean(sv)
         #fast fourier für Spektrum:
-        spectrum_noise = torch.fft.rfft(all_noise_das[i])
+        spectrum_noise = torch.fft.rfft(clean_das)
         spectrum_denoised = torch.fft.rfft(all_denoised_das[i])
         spectrum_noise_abs = torch.abs(spectrum_noise)  #max amplitude
         spectrum_denoised_abs = torch.abs(spectrum_denoised)
@@ -243,7 +243,8 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
     coherence_log = []
     best_sigmas = []    #only for Score in validation + test
     all_tvs = []     #only for Score in validation + test
-    true_sigma = []      
+    true_sigma = []
+    ccGain_log = [] 
     for batch_idx, (noise_images, clean, noise, std, amp, _, _, _) in enumerate(dataLoader):
         clean = clean.to(device).type(torch.float32)
         noise_images = noise_images.to(device).type(torch.float32)
@@ -276,11 +277,11 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         mse = torch.mean((clean-denoised)**2)
         psnr = 10 * torch.log10((max_intensity ** 2) / mse)
         #calculatte scaled variance (https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277/1?file=26674421) In[13]
-        sv = torch.mean((noise_images - denoised)**2, dim=-1) / torch.mean((noise_images)**2, dim=-1)
+        sv = torch.mean((clean - denoised)**2, dim=-1) / torch.mean((clean)**2, dim=-1)
         sv = torch.mean(sv)#, dim=-1)
         #calculate Log-Spectral Distance (LSD)
         #fast fourier für Spektrum:
-        spectrum_noise = torch.fft.rfft(noise_images)
+        spectrum_noise = torch.fft.rfft(clean)
         spectrum_denoised = torch.fft.rfft(denoised)
         spectrum_noise_abs = torch.abs(spectrum_noise)  #max amplitude
         spectrum_denoised_abs = torch.abs(spectrum_denoised)
@@ -293,8 +294,14 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         power_spectrum_b = spectrum_denoised_abs ** 2
         coherence = (torch.abs(cross_spectrum) ** 2) / (power_spectrum_a * power_spectrum_b + 1e-10)
         coherence = torch.mean(coherence)
-
+        #cc-gain
+        tmp = []
+        for i in range(clean.shape[0]):
+            cc_clean = compute_moving_coherence(clean[i][0].cpu().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
+            cc_rec = compute_moving_coherence(denoised[i][0].cpu().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
+            tmp.append(np.mean(cc_rec / cc_clean))
         #log data
+        ccGain_log.append(round(np.mean(tmp),3))
         psnr_log.append(round(psnr.item(),3))
         loss_log.append(loss.item())
         scaledVariance_log.append(round(sv.item(),3))
@@ -317,7 +324,7 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         writer.add_scalar('Test ture sigma', ture_sigma_line, epoch )
         writer.add_scalar('Test sigma', np.mean(best_sigmas), epoch )
         writer.add_scalar('Test tv', np.mean(best_tv), epoch)
-    return loss_log, psnr_log, scaledVariance_log, lsd_log, coherence_log
+    return loss_log, psnr_log, scaledVariance_log, lsd_log, coherence_log, ccGain_log
 
 def main(argv=[]):
     print("Starte Programm n2core!")
@@ -455,6 +462,7 @@ def main(argv=[]):
         best_sv = [[-1,-1],[-1,-1],[-1,-1]] #lower = better
         best_lsd = [[-1,-1],[-1,-1],[-1,-1]] #lower = better (Ruaschsignal ähnlich zur rekonstruction im Frequenzbereich)
         best_coherence = [[-1,-1],[-1,-1],[-1,-1]] #1 = perfekte Korrelation zwischen Rauschsignale und Rekonstruktion; 0 = keine Korrelation
+        best_cc = [[-1,-1],[-1,-1],[-1,-1]]
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         """
@@ -472,14 +480,15 @@ def main(argv=[]):
                 #save_example_wave(picture_DAS_syn, model, device, writer, epoch, mask_methode=mask_methode)
             if 'real' in mask_methode:
                 break
-            loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, tweedie=mask_methode)
+            loss, psnr, scaledVariance_log, lsd_log, coherence_log, ccGain_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch, tweedie=mask_methode)
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
             writer.add_scalar('PSNR Train', statistics.mean(psnr), epoch)
             writer.add_scalar('Scaled Variance Train', statistics.mean(scaledVariance_log), epoch)
             writer.add_scalar('LSD Train', statistics.mean(lsd_log), epoch)
             writer.add_scalar('Korelation Train', statistics.mean(coherence_log), epoch)
+            writer.add_scalar('cc-Gain Train', statistics.mean(ccGain_log), epoch)
 
-            loss_val, psnr_val, scaledVariance_log_val, lsd_log_val, coherence_log_val = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, tweedie=mask_methode) 
+            loss_val, psnr_val, scaledVariance_log_val, lsd_log_val, coherence_log_val, ccGain_log_val = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, tweedie=mask_methode) 
 
             #if modi == 2:
                 #scheduler.step()
@@ -489,6 +498,7 @@ def main(argv=[]):
             writer.add_scalar('Scaled Variance Val', statistics.mean(scaledVariance_log_val), epoch)
             writer.add_scalar('LSD Val', statistics.mean(lsd_log_val), epoch)
             writer.add_scalar('Korelation Val', statistics.mean(coherence_log_val), epoch)
+            writer.add_scalar('cc-Gain Val', statistics.mean(ccGain_log_val), epoch)
 
             if epoch % 5 == 0  or epoch==epochs-1:
                 with torch.no_grad():
@@ -518,7 +528,10 @@ def main(argv=[]):
                 best_coherence[0][0] = statistics.mean(coherence_log)
             if statistics.mean(coherence_log_val) > best_coherence[1][0]:
                 best_coherence[1][0] = statistics.mean(coherence_log_val)
-            break
+            if statistics.mean(ccGain_log) > best_cc[0][0]:
+                best_cc[0][0] = statistics.mean(ccGain_log)
+            if statistics.mean(ccGain_log_val) > best_cc[1][0]:
+                best_cc[1][0] = statistics.mean(ccGain_log_val)
         #"""
         if 'real' in mask_methode:
             last_loss[0][0] = -1
@@ -532,24 +545,29 @@ def main(argv=[]):
             best_lsd[1][0] = -1
             best_coherence[0][0] = -1
             best_coherence[1][0] = -1
+            best_cc[0][0] = -1
+            best_cc[1][0] = -1
             best_psnr[2][0] = -1
             best_sv[2][0] = -1
             best_lsd[2][0] = -1
             best_coherence[2][0] = -1
+            best_cc[2][0] = -1
 
         else:
-            loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, tweedie=mask_methode)
+            loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test, ccGain_log_test = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=0, tweedie=mask_methode)
             writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)
             writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 0)
             writer.add_scalar('Scaled Variance Test', statistics.mean(scaledVariance_log_test), 0)
             writer.add_scalar('LSD Test', statistics.mean(lsd_log_test), 0)
             writer.add_scalar('Korelation Test', statistics.mean(coherence_log_test), 0)
+            writer.add_scalar('cc-Gain Test', statistics.mean(ccGain_log_test), 0)
             model_save_path = os.path.join(store_path, "models", f"last-model-n2score_{mask_methode}_syn.pth")
             torch.save(model.state_dict(), model_save_path)
             best_psnr[2][0] = statistics.mean(psnr_test)
             best_sv[2][0] = statistics.mean(scaledVariance_log_test)
             best_lsd[2][0] = statistics.mean(lsd_log_test)
             best_coherence[2][0] = statistics.mean(coherence_log_test)
+            best_coherence[2][0] = statistics.mean(ccGain_log_test)
             last_loss[0][0] = loss[-1]
             last_loss[1][0] = loss_val[-1]
             last_loss[2][0] = loss_test[-1]
@@ -566,14 +584,15 @@ def main(argv=[]):
             #with torch.no_grad():
                 #denoised_list, _ ,_ = reconstruct(picture_DAS_real1.unsqueeze(0).unsqueeze(0), model, tweedie=mask_methode)
 
-            loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch+epochs, tweedie=mask_methode)
+            loss, psnr, scaledVariance_log, lsd_log, coherence_log, ccGain_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch+epochs, tweedie=mask_methode)
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch+epochs)
             writer.add_scalar('PSNR Train', statistics.mean(psnr), epoch+epochs)
             writer.add_scalar('Scaled Variance Train', statistics.mean(scaledVariance_log), epoch+epochs)
             writer.add_scalar('LSD Train', statistics.mean(lsd_log), epoch+epochs)
             writer.add_scalar('Korelation Train', statistics.mean(coherence_log), epoch+epochs)
+            writer.add_scalar('cc-Gain Train', statistics.mean(ccGain_log), epoch+epochs)
 
-            loss_val, psnr_val, scaledVariance_log_val, lsd_log_val, coherence_log_val = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch+epochs, tweedie=mask_methode) 
+            loss_val, psnr_val, scaledVariance_log_val, lsd_log_val, coherence_log_val, ccGain_log_val = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch+epochs, tweedie=mask_methode) 
 
             #if modi == 2:
                 #scheduler.step()
@@ -583,6 +602,7 @@ def main(argv=[]):
             writer.add_scalar('Scaled Variance Val', statistics.mean(scaledVariance_log_val), epoch+epochs)
             writer.add_scalar('LSD Val', statistics.mean(lsd_log_val), epoch+epochs)
             writer.add_scalar('Korelation Val', statistics.mean(coherence_log_val), epoch+epochs)
+            writer.add_scalar('cc-Gain Val', statistics.mean(ccGain_log_val), epoch+epochs)
 
             if epoch % 10 == 0  or epoch==epochs-1:
                 with torch.no_grad():
@@ -615,20 +635,25 @@ def main(argv=[]):
                 best_coherence[0][1] = statistics.mean(coherence_log)
             if statistics.mean(coherence_log_val) > best_coherence[1][1]:
                 best_coherence[1][1] = statistics.mean(coherence_log_val)
-            break
+            if statistics.mean(ccGain_log) > best_cc[0][1]:
+                best_cc[0][1] = statistics.mean(ccGain_log)
+            if statistics.mean(ccGain_log_val) > best_cc[1][1]:
+                best_cc[1][1] = statistics.mean(ccGain_log_val)
                 
-        loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=1, tweedie=mask_methode)
+        loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test, ccGain_log_test = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=1, tweedie=mask_methode)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 1)
         writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 1)
         writer.add_scalar('Scaled Variance Test', statistics.mean(scaledVariance_log_test), 1)
         writer.add_scalar('LSD Test', statistics.mean(lsd_log_test), 1)
         writer.add_scalar('Korelation Test', statistics.mean(coherence_log_test), 1)
+        writer.add_scalar('cc-Gain Test', statistics.mean(ccGain_log_test), 1)
         model_save_path = os.path.join(store_path, "models", f"last-model-n2score_{mask_methode}_real.pth")
         torch.save(model.state_dict(), model_save_path)
         best_psnr[2][1] = statistics.mean(psnr_test)
         best_sv[2][1] = statistics.mean(scaledVariance_log_test)
         best_lsd[2][1] = statistics.mean(lsd_log_test)
         best_coherence[2][1] = statistics.mean(coherence_log_test)
+        best_cc[2][1] = statistics.mean(ccGain_log_test)
         last_loss[0][1] = loss[-1]
         last_loss[1][1] = loss_val[-1]
         last_loss[2][1] = loss_test[-1]
@@ -637,24 +662,25 @@ def main(argv=[]):
         # Ergebnisse in den DataFrame einfügen
         #'train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real'
         #svae best values in [[train syn, train real], [val syn, val real], [test syn, test real]] structure
-        end_results.loc[:, (mask_methode, 'train syn')] = [last_loss[0][0], best_psnr[0][0], best_sv[0][0], best_lsd[0][0], best_coherence[0][0]]
-        end_results.loc[:, (mask_methode, 'train real')] = [last_loss[0][1], best_psnr[0][1], best_sv[0][1], best_lsd[0][1], best_coherence[0][1]]
+        end_results.loc[:, (mask_methode, 'train syn')] = [last_loss[0][0], best_psnr[0][0], best_sv[0][0], best_lsd[0][0], best_coherence[0][0], best_cc[0][0]]
+        end_results.loc[:, (mask_methode, 'train real')] = [last_loss[0][1], best_psnr[0][1], best_sv[0][1], best_lsd[0][1], best_coherence[0][1], best_cc[0][1]]
 
-        end_results.loc[:, (mask_methode, 'val syn')] = [last_loss[1][0], best_psnr[1][0], best_sv[1][0], best_lsd[1][0], best_coherence[1][0]]
-        end_results.loc[:, (mask_methode, 'val real')] = [last_loss[1][1], best_psnr[1][1], best_sv[1][1], best_lsd[1][1], best_coherence[1][1]]
+        end_results.loc[:, (mask_methode, 'val syn')] = [last_loss[1][0], best_psnr[1][0], best_sv[1][0], best_lsd[1][0], best_coherence[1][0], best_cc[1][0]]
+        end_results.loc[:, (mask_methode, 'val real')] = [last_loss[1][1], best_psnr[1][1], best_sv[1][1], best_lsd[1][1], best_coherence[1][1], best_cc[1][1]]
 
-        end_results.loc[:, (mask_methode, 'test syn')] = [last_loss[2][0], best_psnr[2][0], best_sv[2][0], best_lsd[2][0], best_coherence[2][0]]
-        end_results.loc[:, (mask_methode, 'test real')] = [last_loss[2][1], best_psnr[2][1], best_sv[2][1], best_lsd[2][1], best_coherence[2][1]]
+        end_results.loc[:, (mask_methode, 'test syn')] = [last_loss[2][0], best_psnr[2][0], best_sv[2][0], best_lsd[2][0], best_coherence[2][0], best_cc[2][0]]
+        end_results.loc[:, (mask_methode, 'test real')] = [last_loss[2][1], best_psnr[2][1], best_sv[2][1], best_lsd[2][1], best_coherence[2][1], best_cc[2][1]]
         end_results.index = ['Last Loss', 
-                        'Best PSNR', 
-                        'Best Scaled Variance', 
-                        'Best LSD',
-                        'Best Coherence']
+                         'Best PSNR', 
+                         'Best Scaled Variance', 
+                         'Best LSD',
+                         'Best Coherence',
+                         'Best cc-Gain']
         end_results.to_csv(csv_file, index=True)
         modi += 1
 
     print("n2score fertig")
-    return best_psnr, best_sv, best_lsd, best_coherence
+    return best_psnr, best_sv, best_lsd, best_coherence, best_cc
 
 if __name__ == '__main__':
     main()
