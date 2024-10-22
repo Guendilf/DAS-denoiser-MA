@@ -528,11 +528,14 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, masking_met
         coherence = (torch.abs(cross_spectrum) ** 2) / (power_spectrum_a * power_spectrum_b + 1e-10)
         coherence = torch.mean(coherence)
         #cc-gain
-        tmp = []
-        for i in range(noise_images.shape[0]):
-            cc_clean = compute_moving_coherence(clean[i][0].cpu().detach().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
-            cc_rec = compute_moving_coherence(denoised[i][0].cpu().detach().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
-            tmp.append(np.mean(cc_rec / cc_clean))
+        if 'val' in mode or 'test' in mode:
+            tmp = []
+            for i in range(noise_images.shape[0]):
+                cc_clean = compute_moving_coherence(clean[i][0].cpu().detach().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
+                cc_rec = compute_moving_coherence(denoised[i][0].cpu().detach().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
+                tmp.append(np.mean(cc_rec / cc_clean))
+        else:
+            tmp=[-1,-1]
         #log data
         ccGain_log.append(round(np.mean(tmp),3))
         psnr_log.append(round(psnr.item(),3))
