@@ -533,7 +533,6 @@ def main(argv=[]):
                 best_cc[0][0] = statistics.mean(ccGain_log)
             if statistics.mean(ccGain_log_val) > best_cc[1][0]:
                 best_cc[1][0] = statistics.mean(ccGain_log_val)
-            break
         #"""
         if 'real' in mask_methode:
             last_loss[0][0] = -1
