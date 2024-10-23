@@ -431,7 +431,7 @@ def main(argv=[]):
         store_path_root = log_files()
     global modi
    
-    masking_methodes=['real_1_1', 'gaus']
+    masking_methodes=['gaus']#'real_1_1',
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
 
@@ -533,6 +533,7 @@ def main(argv=[]):
                 best_cc[0][0] = statistics.mean(ccGain_log)
             if statistics.mean(ccGain_log_val) > best_cc[1][0]:
                 best_cc[1][0] = statistics.mean(ccGain_log_val)
+            break
         #"""
         if 'real' in mask_methode:
             last_loss[0][0] = -1
@@ -615,6 +616,7 @@ def main(argv=[]):
                             save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised[0][0], vmin=-1, vmax=1, mask_methode=noise_model[k])
                     else:
                         denoised, _, _ = reconstruct(picture_DAS_real1.unsqueeze(0).unsqueeze(0), model, tweedie=mask_methode)
+                        denoised = denoised.cpu().detach().numpy()
                         save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised[0][0], vmin=-1, vmax=1, mask_methode=mask_methode)
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar('Lernrate', current_lr, epoch+epochs)
