@@ -471,8 +471,9 @@ def calculate_loss(noise_image, model, batch_idx, masking_methode):
             mask = mask.to(device)
             masked_noise_image = (1-mask) * noise_image
     denoised = model(masked_noise_image)
-    #loss_my = torch.nn.MSELoss()(denoised*(mask), noise_image*(mask))
-    return torch.mean(torch.sum(mask * (denoised - noise_image)**2, dim=-1)/torch.sum(mask, dim=-1)), denoised, mask
+    loss = torch.mean(torch.mean(mask * (denoised - noise_image)**2, dim=-1))
+    #loss_sebastian = torch.mean(torch.sum(mask * (denoised - noise_image)**2, dim=-1)/torch.sum(mask, dim=-1)) #erzeugt nan
+    return loss, denoised, mask
 
 def train(model, device, dataLoader, optimizer, mode, writer, epoch, masking_methode='channel_1'):
     global modi
@@ -651,7 +652,7 @@ def main(argv=[]):
     global modi
    
     #masking_methodes=['channel_1', 'channel_2', 'channel_3', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5', 'pixel_10']
-    masking_methodes=['pixel zero', 'pixel jinv']
+    masking_methodes=['channel_1', 'pixel zero', 'pixel jinv']
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
     csv_file = os.path.join(store_path_root, 'best_results.csv')

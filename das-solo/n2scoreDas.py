@@ -607,11 +607,15 @@ def main(argv=[]):
 
             if epoch % 10 == 0  or epoch==epochs-1:
                 with torch.no_grad():
-                    denoised_list, _ ,_ = reconstruct(picture_DAS_real1.unsqueeze(0).unsqueeze(0), model, tweedie=mask_methode)
-                    noise_model = ['gaus', 'poisson', 'gamma', 'bernoulli', 'expo']
-                    for k, denoised in enumerate(denoised_list):
-                        denoised = denoised.cpu().detach().numpy()
-                        save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised[0][0], vmin=-1, vmax=1, mask_methode=noise_model[k])
+                    if 'real' in mask_methode:
+                        denoised_list, _ ,_ = reconstruct(picture_DAS_real1.unsqueeze(0).unsqueeze(0), model, tweedie=mask_methode)
+                        noise_model = ['gaus', 'poisson', 'gamma', 'bernoulli', 'expo']
+                        for k, denoised in enumerate(denoised_list):
+                            denoised = denoised.cpu().detach().numpy()
+                            save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised[0][0], vmin=-1, vmax=1, mask_methode=noise_model[k])
+                    else:
+                        denoised, _, _ = reconstruct(picture_DAS_real1.unsqueeze(0).unsqueeze(0), model, tweedie=mask_methode)
+                        save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised[0][0], vmin=-1, vmax=1, mask_methode=mask_methode)
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar('Lernrate', current_lr, epoch+epochs)
 
