@@ -183,7 +183,7 @@ def n2void(original_images, noise_images, model, device, num_patches_per_img, wi
                 mask_for_batch.append(select_random_pixels_old((patches.shape[1],patches.shape[2],patches.shape[3]), num_masked_pixels))
             mask = torch.stack(mask_for_batch)
     #mask, num_masked_pixels_total = Mask.mask_random(patches, 8, mask_size=(1,1))
-    #mask = mask.to(device)
+    mask = mask.to(device)
     masked_noise = exchange_in_mask_with_pixel_in_window(mask, patches, windowsize, num_masked_pixels) #TODO
     
     denoised = model(masked_noise)
@@ -210,7 +210,7 @@ def calculate_loss(model, device, methode, original, noise_images, augmentation)
     noise_images = patches
     original = original_patches
 
-    return loss, denoised, original, noise_images, (lr, ud, sigma_info, est_sigma_opt)
+    return loss, denoised, original, noise_images, (lr, ud, est_sigma_opt)
 
 
 """
@@ -248,7 +248,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
             model.eval()
             with torch.no_grad():
                 loss, _, _, _, optional_tuples = calculate_loss(model, device, methode, original, noise_images, augmentation)
-                (_, _, _, est_sigma_opt) = optional_tuples
+                (_, _, est_sigma_opt) = optional_tuples
                 
                 #calculate mean and std for each Image in batch in every chanal
                 #mean = noise_images.mean(dim=[0,2,3])
@@ -280,7 +280,6 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
         psnr_log.append(psnr_batch.item())
         original_psnr_log.append(original_psnr_batch.item())
         sim_log.append(similarity_batch)
-
         #save model + picture
         bestPsnr = saveModel_pictureComparison(model, len(dataLoader), methode, mode, store, epoch, bestPsnr, writer, save_model, batch_idx, original, batch, noise_images, denoised, psnr_batch)
     
@@ -401,7 +400,7 @@ def main(argv):
                 else:
                     f = open(model_save_path, "x")
                     f.close()
-
+            
             if round(max(psnr),3) > bestPsnr:
                 bestPsnr = round(max(psnr),3)
             if round(max(similarity),3) > bestSim:
