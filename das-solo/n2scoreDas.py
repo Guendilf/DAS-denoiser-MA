@@ -29,13 +29,12 @@ import pandas as pd
 #tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\runs"                           #vom Server
 #tensorboard --logdir="C:\Users\LaAlexPi\Documents\01_Uni\MA\runs\"                         #Laptop
 
-epochs = 300 #2.000 epochen - 1 Epoche = 3424 samples
+epochs = 100 #2.000 epochen - 1 Epoche = 3424 samples
 realEpochs = 100
 batchsize = 32
-maskChanels = 1
-dasChanelsTrain = 11*maskChanels
-dasChanelsVal = 11*maskChanels
-dasChanelsTest = 11*maskChanels
+dasChanelsTrain = 200
+dasChanelsVal = 200
+dasChanelsTest = 200
 nt = 2048
 
 lr = 0.0001
@@ -60,7 +59,7 @@ TODO:
 
 
 
-def reconstruct(noise_images, model, tweedie):
+def reconstruct(noise_images, model, tweedie, train=False):
     with torch.no_grad():
         model.eval()
         vectorMap =  model(noise_images)
@@ -72,6 +71,8 @@ def reconstruct(noise_images, model, tweedie):
         beta = int(beta)
         best_tv, best_sigma = evaluateSigma(noise_images, vectorMap)
         denoised.append(noise_images + best_sigma**2 * vectorMap)#gaus
+        if train:
+            return denoised, best_tv, best_sigma
         denoised.append((noise_images + 1/2) * torch.exp(vectorMap))#poisson
         denoised.append((beta * noise_images)/((1-alpha) - noise_images * vectorMap))#gamma
         denoised.append(torch.exp(vectorMap) / (1 + torch.exp(vectorMap)))#bernoulli
@@ -139,7 +140,7 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
         plt.close(wave_plot_fig)
         buf.seek(0)
         img = np.array(Image.open(buf))
-        writer.add_image("Image Plot Wave", img, global_step=epoch, dataformats='HWC')
+        writer.add_image(f"Image Plot Wave {mask_methode}", img, global_step=epoch, dataformats='HWC')
         buf.close()
 
         buf = io.BytesIO()
@@ -148,7 +149,7 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
         plt.close(das_plot_fig)
         buf.seek(0)
         img = np.array(Image.open(buf))
-        writer.add_image("Image Plot DAS", img, global_step=epoch, dataformats='HWC')
+        writer.add_image(f"Image Plot DAS {mask_methode}", img, global_step=epoch, dataformats='HWC')
         buf.close()
     else:
         clean_das = clean_das_original.detach().cpu().numpy()
@@ -171,7 +172,7 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
         plt.close(fig)
         buf.seek(0)
         img = np.array(Image.open(buf))
-        writer.add_image(f"Image Plot DAS Real", img, global_step=epoch, dataformats='HWC')
+        writer.add_image(f"Image Plot DAS Real {mask_methode}", img, global_step=epoch, dataformats='HWC')
         buf.close()
 
         clean_das = torch.from_numpy(clean_das)
@@ -262,7 +263,7 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
             with torch.no_grad():
                 model.eval()
                 loss, _ = calculate_loss(noise_images, model, batch_idx, device, len(dataLoader))
-        denoised, best_tv, best_sigma = reconstruct(noise_images, model, tweedie)
+        denoised, best_tv, best_sigma = reconstruct(noise_images, model, tweedie, train=True)
         if 'real' in tweedie:
             denoised = denoised[0]
         best_sigmas.append(best_sigma)
@@ -412,7 +413,7 @@ def main(argv=[]):
     stds = test_real_data[:, :, t_slice].std(axis=2, keepdims=True)
     test_real_data = test_real_data / stds
 
-    real_dataset = RealDAS(train_real_data, nx=dasChanelsTrain, nt=nt, size=300*batchsize)
+    real_dataset = RealDAS(train_real_data, nx=dasChanelsTrain, nt=nt, size=200*batchsize)
     real_dataset_val = RealDAS(val_real_data, nx=dasChanelsVal, nt=nt, size=20*batchsize)
     real_dataset_test = RealDAS(test_real_data, nx=dasChanelsTest, nt=nt, size=20*batchsize)
     #"""
@@ -431,7 +432,7 @@ def main(argv=[]):
         store_path_root = log_files()
     global modi
    
-    masking_methodes=['gaus']#'real_1_1',
+    masking_methodes=['real_1_1']#, 'gaus']
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
 
@@ -460,8 +461,8 @@ def main(argv=[]):
         #svae best values in [[train syn, train real], [val syn, val real], [test syn, test real]] structure
         last_loss = [[-1,-1],[-1,-1],[-1,-1]] #lower = better
         best_psnr = [[-1,-1],[-1,-1],[-1,-1]] #higher = better
-        best_sv = [[-1,-1],[-1,-1],[-1,-1]] #lower = better
-        best_lsd = [[-1,-1],[-1,-1],[-1,-1]] #lower = better (Ruaschsignal ähnlich zur rekonstruction im Frequenzbereich)
+        best_sv = [[1000,1000],[1000,1000],[1000,1000]] #lower = better
+        best_lsd = [[1000,1000],[1000,1000],[1000,1000]] #lower = better (Ruaschsignal ähnlich zur rekonstruction im Frequenzbereich)
         best_coherence = [[-1,-1],[-1,-1],[-1,-1]] #1 = perfekte Korrelation zwischen Rauschsignale und Rekonstruktion; 0 = keine Korrelation
         best_cc = [[-1,-1],[-1,-1],[-1,-1]]
 

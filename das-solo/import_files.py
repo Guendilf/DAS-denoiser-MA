@@ -417,7 +417,7 @@ class RealDAS(Dataset):
         if np.random.random() < 0.5:
             patch *= -1 
         #       noise_images,        clean,                 noise,         std=1, amp=0, _, _, _
-        return patch.unsqueeze(0), patch.unsqueeze(0), patch.unsqueeze(0), torch.ones((1, 11, 1)), 0, 0, 0, 0
+        return patch.unsqueeze(0), patch.unsqueeze(0), patch.unsqueeze(0), torch.ones((1, self.nx, 1)), 0, 0, 0, 0
 
 
 def bandpass(x, low, high, fs, gutter, alpha=0.1):
