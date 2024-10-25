@@ -162,8 +162,8 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
         min_wave = min(clean_das[channel_idx_1].min(),clean_das[channel_idx_2].min())
         max_wave = max(clean_das[channel_idx_1].max(),clean_das[channel_idx_2].max())
 
-        cc_clean = compute_moving_coherence(clean_das, dasChanelsTrain) #11 weil 11 Kanäle in training?
-        cc_rec = compute_moving_coherence(real_denoised, dasChanelsTrain) #11 weil 11 Kanäle in training?
+        cc_clean = compute_moving_coherence(clean_das, 11) #11 weil 11 Kanäle in training?
+        cc_rec = compute_moving_coherence(real_denoised, 11) #11 weil 11 Kanäle in training?
         cc_gain_rec = cc_rec / cc_clean
         
         fig = generate_real_das_plot(clean_das, real_denoised, all_semblance, channel_idx_1, channel_idx_2, cc_gain_rec, vmin, vmax, min_wave, max_wave)
@@ -245,7 +245,7 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
     best_sigmas = []    #only for Score in validation + test
     all_tvs = []     #only for Score in validation + test
     true_sigma = []
-    ccGain_log = [] 
+    ccGain_log = []
     for batch_idx, (noise_images, clean, noise, std, amp, _, _, _) in enumerate(dataLoader):
         clean = clean.to(device).type(torch.float32)
         noise_images = noise_images.to(device).type(torch.float32)
@@ -296,12 +296,12 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         coherence = (torch.abs(cross_spectrum) ** 2) / (power_spectrum_a * power_spectrum_b + 1e-10)
         coherence = torch.mean(coherence)
         #cc-gain
-        if 'val' in mode or 'test' in mode:
-            cc_clean = compute_moving_coherence(clean[0][0].cpu().detach().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
-            cc_rec = compute_moving_coherence(denoised[0][0].cpu().detach().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
-            cc_value = (np.mean(cc_rec / cc_clean))
-        else:
-            cc_value = -1
+        #if 'val' in mode or 'test' in mode:
+            #cc_clean = compute_moving_coherence(clean[0][0].cpu().detach().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
+            #cc_rec = compute_moving_coherence(denoised[0][0].cpu().detach().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
+            #cc_value = (np.mean(cc_rec / cc_clean))
+        #else:
+        cc_value = -1
         #log data
         ccGain_log.append(round(cc_value,3))
         psnr_log.append(round(psnr.item(),3))
@@ -609,11 +609,16 @@ def main(argv=[]):
             if epoch % 10 == 0  or epoch==epochs-1:
                 with torch.no_grad():
                     if 'real' in mask_methode:
-                        denoised_list, _ ,_ = reconstruct(picture_DAS_real1.unsqueeze(0).unsqueeze(0), model, tweedie=mask_methode)
-                        noise_model = ['gaus', 'poisson', 'gamma', 'bernoulli', 'expo']
-                        for k, denoised in enumerate(denoised_list):
-                            denoised = denoised.cpu().detach().numpy()
-                            save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised[0][0], vmin=-1, vmax=1, mask_methode=noise_model[k])
+                        if epoch==(epochs-1):
+                            denoised_list, _ ,_ = reconstruct(picture_DAS_real1.unsqueeze(0).unsqueeze(0), model, tweedie=mask_methode)
+                            noise_model = ['gaus', 'poisson', 'gamma', 'bernoulli', 'expo']
+                            for k, denoised in enumerate(denoised_list):
+                                denoised = denoised.cpu().detach().numpy()
+                                save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised[0][0], vmin=-1, vmax=1, mask_methode=noise_model[k])
+                        else:
+                            denoised, _, _ = reconstruct(picture_DAS_real1.unsqueeze(0).unsqueeze(0), model, tweedie=mask_methode)
+                            denoised = denoised[0].cpu().detach().numpy()
+                            save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised[0][0], vmin=-1, vmax=1, mask_methode=mask_methode)
                     else:
                         denoised, _, _ = reconstruct(picture_DAS_real1.unsqueeze(0).unsqueeze(0), model, tweedie=mask_methode)
                         denoised = denoised.cpu().detach().numpy()
@@ -687,6 +692,7 @@ def main(argv=[]):
         modi += 1
 
     print("n2score fertig")
+    #print(str(datetime.now().replace(microsecond=0)).replace(':', '-'))
     return best_psnr, best_sv, best_lsd, best_coherence, best_cc
 
 if __name__ == '__main__':
