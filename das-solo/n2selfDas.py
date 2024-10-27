@@ -193,9 +193,9 @@ def reconstruct_old(model, device, noise_images):
 def reconstruct(model, device, data, nx=11, nt=2048, batch_size=32, num_masked_channels=1, mask_methode='channel_1'):
     #TODO: make it work with whole batches
     #start = time.time()
+    data = data.squeeze(1)
+    datas = data.split(1, dim=0)
     if "channel" in mask_methode:
-        data = data.squeeze(1)
-        datas = data.split(1, dim=0)
         _, num_masked_channels = mask_methode.split('_')
         num_masked_channels = int(num_masked_channels)
     if "pixel" in mask_methode:
@@ -653,17 +653,17 @@ def main(argv=[]):
     if torch.cuda.device_count() == 1:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
-        device = "cuda:3"
+        device = "cuda:2"
     
     strain_train_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
     strain_test_dir = "data/DAS/SIS-rotated_test_50Hz.npy"
 
-    #eq_strain_rates_test, dataset, dataset_validate, dataset_test, test_real_data, real_dataset, real_dataset_val, real_dataset_test = load_data(strain_train_dir, strain_test_dir)
+    eq_strain_rates_test, dataset, dataset_validate, dataset_test, test_real_data, real_dataset, real_dataset_val, real_dataset_test = load_data(strain_train_dir, strain_test_dir)
 
-    #wave = eq_strain_rates_test[6][4200:6248]
-    #picture_DAS_syn = gerate_spezific_das(wave, nx=304, nt=2048, eq_slowness=1/(500), gauge=channel_spacing, fs=sampling)
-    #picture_DAS_syn = picture_DAS_syn.to(device).type(torch.float32)
-    #picture_DAS_real1 = torch.from_numpy(test_real_data[2][:1472,4576:]).to(device).type(torch.float32) #shape=1482,7424
+    wave = eq_strain_rates_test[6][4200:6248]
+    picture_DAS_syn = gerate_spezific_das(wave, nx=304, nt=2048, eq_slowness=1/(500), gauge=channel_spacing, fs=sampling)
+    picture_DAS_syn = picture_DAS_syn.to(device).type(torch.float32)
+    picture_DAS_real1 = torch.from_numpy(test_real_data[2][:1472,4576:]).to(device).type(torch.float32) #shape=1482,7424
 
     
   

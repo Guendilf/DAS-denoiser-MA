@@ -252,9 +252,6 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         std = std.to(device).type(torch.float32)
         amp = amp.to(device).type(torch.float32)
         true_sigma.append(noise.std())
-        #norming
-        noise_images *= std
-        denoised *= std
 
         if mode == "train":
             model.train()
@@ -273,8 +270,8 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         all_tvs.append(best_tv)
 
         #norming war eigentlich an der Stelle
-        #noise_images *= std
-        #denoised *= std
+        noise_images *= std
+        denoised *= std
 
         #calculate psnr
         max_intensity=clean.max()-clean.min()
@@ -340,7 +337,7 @@ def main(argv=[]):
     if torch.cuda.device_count() == 1:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
-        device = "cuda:3"
+        device = "cuda:2"
     
     strain_train_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
     strain_test_dir = "data/DAS/SIS-rotated_test_50Hz.npy"
