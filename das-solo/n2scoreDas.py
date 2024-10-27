@@ -32,9 +32,9 @@ import pandas as pd
 epochs = 100 #2.000 epochen - 1 Epoche = 3424 samples
 realEpochs = 100
 batchsize = 32
-dasChanelsTrain = 200
-dasChanelsVal = 200
-dasChanelsTest = 200
+dasChanelsTrain = 100
+dasChanelsVal = 100
+dasChanelsTest = 100
 nt = 2048
 
 lr = 0.0001
@@ -252,6 +252,9 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         std = std.to(device).type(torch.float32)
         amp = amp.to(device).type(torch.float32)
         true_sigma.append(noise.std())
+        #norming
+        noise_images *= std
+        denoised *= std
 
         if mode == "train":
             model.train()
@@ -269,9 +272,9 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         best_sigmas.append(best_sigma)
         all_tvs.append(best_tv)
 
-        #norming
-        noise_images *= std
-        denoised *= std
+        #norming war eigentlich an der Stelle
+        #noise_images *= std
+        #denoised *= std
 
         #calculate psnr
         max_intensity=clean.max()-clean.min()
@@ -280,6 +283,7 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         #calculatte scaled variance (https://figshare.com/articles/software/A_Self-Supervised_Deep_Learning_Approach_for_Blind_Denoising_and_Waveform_Coherence_Enhancement_in_Distributed_Acoustic_Sensing_data/14152277/1?file=26674421) In[13]
         sv = torch.mean((clean - denoised)**2, dim=-1) / torch.mean((clean)**2, dim=-1)
         sv = torch.mean(sv)#, dim=-1)
+        """
         #calculate Log-Spectral Distance (LSD)
         #fast fourier für Spektrum:
         spectrum_noise = torch.fft.rfft(clean)
@@ -295,6 +299,7 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         power_spectrum_b = spectrum_denoised_abs ** 2
         coherence = (torch.abs(cross_spectrum) ** 2) / (power_spectrum_a * power_spectrum_b + 1e-10)
         coherence = torch.mean(coherence)
+        """
         #cc-gain
         #if 'val' in mode or 'test' in mode:
             #cc_clean = compute_moving_coherence(clean[0][0].cpu().detach().numpy(), dasChanelsTrain) #11 weil 11 Kanäle in training?
@@ -302,6 +307,8 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
             #cc_value = (np.mean(cc_rec / cc_clean))
         #else:
         cc_value = -1
+        lsd = torch.tensor(-1.0)
+        coherence = torch.tensor(-1.0)
         #log data
         ccGain_log.append(round(cc_value,3))
         psnr_log.append(round(psnr.item(),3))
