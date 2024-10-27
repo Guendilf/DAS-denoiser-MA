@@ -58,6 +58,97 @@ TODO:
 - channel_spacing = 19,2
 - 50 Hz frequenz
 """
+def load_data(strain_train_dir, strain_test_dir, nx=None):
+    global dasChanelsTrain
+    global dasChanelsVal
+    global dasChanelsTest
+    if nx:
+        dasChanelsTrain = nx
+        dasChanelsVal = nx
+        dasChanelsTest = nx
+        
+    print("lade Synthetische Datensätze ...")
+    #"""
+    eq_strain_rates = np.load(strain_train_dir)
+    # Normalise waveforms
+    N_ch, N_t = eq_strain_rates.shape
+    t_slice = slice(N_t//4, 3*N_t//4)
+    stds = eq_strain_rates[:, t_slice].std(axis=1, keepdims=True)
+    eq_strain_rates = eq_strain_rates / stds
+
+    split_idx = int(0.8 * len(eq_strain_rates))
+    eq_strain_rates_train = torch.tensor(eq_strain_rates[:split_idx])
+    eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
+
+    eq_strain_rates_test = np.load(strain_test_dir)
+    # Normalise waveforms
+    N_ch, N_t = eq_strain_rates_test.shape
+    t_slice = slice(N_t//4, 3*N_t//4)
+    stds = eq_strain_rates_test[:, t_slice].std(axis=1, keepdims=True)
+    eq_strain_rates_test = eq_strain_rates_test / stds
+
+
+
+    eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=300*batchsize)
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
+    #"""
+    #---------------real daten laden----------------
+    #"""
+    print("lade Reale Datensätze ...")
+    train_path = "Server_DAS/real_train/"
+    test_path = "Server_DAS/real_test/"
+    train_path = sorted([train_path + f for f in os.listdir(train_path)])
+    test_paths = sorted([test_path + f for f in os.listdir(test_path)])
+
+    train_real_data = []
+    for i, p in enumerate(train_path):
+        with h5py.File(p, 'r') as hf:
+            DAS_sample = hf['DAS'][81:]
+            if channel_spacing == 20:
+                DAS_sample = DAS_sample[::5] #if dx = 20
+            train_real_data.append(DAS_sample)
+    train_real_data = np.stack(train_real_data)
+    gutter = 1000
+    train_real_data = np.pad(train_real_data, ((0,0),(0,0),(gutter,gutter)), mode='constant', constant_values=0)
+    chunks = np.array_split(train_real_data, 10)
+    processed_chunks = [bandpass(chunk, low=1.0, high=10.0, fs=sampling, gutter=gutter) for chunk in chunks]
+    train_real_data = np.concatenate(processed_chunks, axis=0)
+    batch, N_ch, N_t = train_real_data.shape
+    #effiziente for schleife (identisch zu oben mit wv)
+    t_slice = slice(N_t//4, 3*N_t//4)
+    stds = train_real_data[:, :, t_slice].std(axis=2, keepdims=True)
+    train_real_data_all = train_real_data / stds
+    train_real_data = train_real_data_all[:20,:,:]
+    val_real_data = train_real_data_all[20:,:,:]
+
+    test_real_data = []
+    for i, p in enumerate(test_paths):
+        with h5py.File(p, 'r') as hf:
+            DAS_sample = hf['DAS'][81:]
+            if channel_spacing == 20:
+                DAS_sample = DAS_sample[::5] #if dx = 20
+            test_real_data.append(DAS_sample)
+    test_real_data = np.stack(test_real_data)
+    gutter = 1000
+    test_real_data = np.pad(test_real_data, ((0,0),(0,0),(gutter,gutter)), mode='constant', constant_values=0)
+    chunks = np.array_split(test_real_data, 5)
+    processed_chunks = [bandpass(chunk, low=1.0, high=10.0, fs=sampling, gutter=gutter) for chunk in chunks]
+    test_real_data = np.concatenate(processed_chunks, axis=0)
+    batch, N_ch, N_t = test_real_data.shape
+    #effiziente for schleife (identisch zu oben mit wv)
+    t_slice = slice(N_t//4, 3*N_t//4)
+    stds = test_real_data[:, :, t_slice].std(axis=2, keepdims=True)
+    test_real_data = test_real_data / stds
+
+    real_dataset = RealDAS(train_real_data, nx=dasChanelsTrain, nt=nt, size=300*batchsize)
+    real_dataset_val = RealDAS(val_real_data, nx=dasChanelsVal, nt=nt, size=20*batchsize)
+    real_dataset_test = RealDAS(test_real_data, nx=dasChanelsTest, nt=nt, size=20*batchsize)
+    #"""
+    print("Datensätze geladen!")
+    return eq_strain_rates_test,dataset,dataset_validate,dataset_test,test_real_data,real_dataset,real_dataset_val,real_dataset_test
+
 def visualise_spectrum(spectrum_noise, spectrum_denoised):
     fig, axes = plt.subplots(nrows=11, figsize=(10, 20))
     # Iteriere durch jede w-Schicht (zweite Dimension, hier 11)
@@ -101,6 +192,7 @@ def reconstruct_old(model, device, noise_images):
 
 def reconstruct(model, device, data, nx=11, nt=2048, batch_size=32, num_masked_channels=1, mask_methode='channel_1'):
     #TODO: make it work with whole batches
+    #start = time.time()
     if "channel" in mask_methode:
         data = data.squeeze(1)
         datas = data.split(1, dim=0)
@@ -109,15 +201,18 @@ def reconstruct(model, device, data, nx=11, nt=2048, batch_size=32, num_masked_c
     if "pixel" in mask_methode:
         if "jinv" in mask_methode:
             result = jinv_recon(data, model, grid_size=3, mode='interpolate', include_mask_as_input=False)
-            return result
+            #print(f"reconstruct jinv: {time.time()-start}")
         elif "zero" in mask_methode:
             result = jinv_recon(data, model, grid_size=3, mode='zero', include_mask_as_input=False)
+            #print(f"reconstruct zero: {time.time()-start}")
         else:
             result = model(data.to(device))
+            #print(f"reconstruct random: {time.time()-start}")
         return result
     recs = []
     for das in datas:
         recs.append(channelwise_reconstruct_part(model, device, das[0], nx, nt, num_masked_channels, mask_methode)) #das.shape=(1,nx,nt)
+    #print(f"reconstruct channel: {time.time()-start}")
     return torch.stack(recs).unsqueeze(1).to(device)
 def channelwise_reconstruct_part_original_sebastian(model, device, data, nx, nt): # nx=11, nt=2048 
     NX, NT = data.shape
@@ -304,7 +399,7 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
     all_denoised_das = []
     amps = []
     stds = []
-    if clean_das_original.shape[0] == 300:
+    if clean_das_original.shape[0] == 304:
         for SNR in SNRs:
             noise = np.random.randn(*clean_das_original.shape)  # Zufälliges Rauschen
             noise = torch.from_numpy(noise).to(device).float()
@@ -314,7 +409,7 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
             clean_das = clean_das_original * amp
             noisy_das = clean_das + noise
             noisy_das = noisy_das.unsqueeze(0).unsqueeze(0).to(device).float()
-            denoised_waves = reconstruct(model, device, noisy_das/noisy_das.std(), mask_methode=mask_methode)
+            denoised_waves = reconstruct(model, device, noisy_das/noisy_das.std(), mask_methode=mask_methode, nx=dasChanelsTrain)
             all_noise_das.append(noisy_das.squeeze(0).squeeze(0))
             all_denoised_das.append((denoised_waves*noisy_das.std()).squeeze(0).squeeze(0))
         
@@ -436,6 +531,7 @@ def calculate_loss(noise_image, model, batch_idx, masking_methode):
     device = noise_image.device
     mask = channelwise_mask(noise_image, width=maskChanels)
     masked_noise_image = (1-mask) * noise_image
+    #start = time.time()
     if "random" in masking_methode:
         masked_noise_image += mask * torch.normal(0, 0.2, size=mask.shape).to(device)
     elif "circle" in masking_methode:    #machen mit circle und so wie im n2self paper
@@ -459,19 +555,24 @@ def calculate_loss(noise_image, model, batch_idx, masking_methode):
         masked_channel_number = int(masked_channel_number)
         mask = channelwise_mask(noise_image, width=masked_channel_number)
         masked_noise_image = (1-mask) * noise_image
+        #print(f"loss channel: {time.time()-start}")
     elif "pixel" in masking_methode:
         if 'jinv' in masking_methode:
             masked_noise_image, mask = n2self_mask(noise_image, batch_idx, grid_size=3, radius=1) # replace the pixles by the median value of circle with radius
+            #print(f"loss jinv: {time.time()-start}")
         elif 'zero' in masking_methode:
             masked_noise_image, mask = n2self_mask(noise_image, batch_idx, grid_size=3, mode='zero') # delete the pixels
+            #print(f"loss zero: {time.time()-start}")
         else: #bestimmte anzahl an random pixeln
             _, mask_percent = masking_methode.split('_')
             mask_percent = float(mask_percent)
             mask, _ = mask_random(noise_image, mask_percent, (1,1)) #noise.shape=(batch, 1, nx, nt)
             mask = mask.to(device)
             masked_noise_image = (1-mask) * noise_image
+            #print(f"loss random: {time.time()-start}")
     denoised = model(masked_noise_image)
     loss = torch.mean(torch.mean(mask * (denoised - noise_image)**2, dim=-1))
+    #print(f"loss calculation: {time.time()-start}")
     #loss_sebastian = torch.mean(torch.sum(mask * (denoised - noise_image)**2, dim=-1)/torch.sum(mask, dim=-1)) #erzeugt nan
     return loss, denoised, mask
 
@@ -501,7 +602,7 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, masking_met
                 model.eval()
                 loss, denoised, mask_orig = calculate_loss(noise_images, model, batch_idx, masking_methode)
                 #J-Invariant reconstruction
-                denoised = reconstruct(model, device, noise_images, mask_methode=masking_methode)
+                denoised = reconstruct(model, device, noise_images, mask_methode=masking_methode, nx=dasChanelsTrain)
         #norming
         noise_images *= std
         denoised *= std
@@ -557,91 +658,12 @@ def main(argv=[]):
     strain_train_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
     strain_test_dir = "data/DAS/SIS-rotated_test_50Hz.npy"
 
-    print("lade Synthetische Datensätze ...")
-    #"""
-    eq_strain_rates = np.load(strain_train_dir)
-    # Normalise waveforms
-    N_ch, N_t = eq_strain_rates.shape
-    t_slice = slice(N_t//4, 3*N_t//4)
-    stds = eq_strain_rates[:, t_slice].std(axis=1, keepdims=True)
-    eq_strain_rates = eq_strain_rates / stds
+    #eq_strain_rates_test, dataset, dataset_validate, dataset_test, test_real_data, real_dataset, real_dataset_val, real_dataset_test = load_data(strain_train_dir, strain_test_dir)
 
-    split_idx = int(0.8 * len(eq_strain_rates))
-    eq_strain_rates_train = torch.tensor(eq_strain_rates[:split_idx])
-    eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
-
-    eq_strain_rates_test = np.load(strain_test_dir)
-    # Normalise waveforms
-    N_ch, N_t = eq_strain_rates_test.shape
-    t_slice = slice(N_t//4, 3*N_t//4)
-    stds = eq_strain_rates_test[:, t_slice].std(axis=1, keepdims=True)
-    eq_strain_rates_test = eq_strain_rates_test / stds
-
-
-
-    eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=300*batchsize)
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
-    #"""
-    #---------------real daten laden----------------
-    #"""
-    print("lade Reale Datensätze ...")
-    train_path = "Server_DAS/real_train/"
-    test_path = "Server_DAS/real_test/"
-    train_path = sorted([train_path + f for f in os.listdir(train_path)])
-    test_paths = sorted([test_path + f for f in os.listdir(test_path)])
-
-    train_real_data = []
-    for i, p in enumerate(train_path):
-        with h5py.File(p, 'r') as hf:
-            DAS_sample = hf['DAS'][81:]
-            if channel_spacing == 20:
-                DAS_sample = DAS_sample[::5] #if dx = 20
-            train_real_data.append(DAS_sample)
-    train_real_data = np.stack(train_real_data)
-    gutter = 1000
-    train_real_data = np.pad(train_real_data, ((0,0),(0,0),(gutter,gutter)), mode='constant', constant_values=0)
-    chunks = np.array_split(train_real_data, 10)
-    processed_chunks = [bandpass(chunk, low=1.0, high=10.0, fs=sampling, gutter=gutter) for chunk in chunks]
-    train_real_data = np.concatenate(processed_chunks, axis=0)
-    batch, N_ch, N_t = train_real_data.shape
-    #effiziente for schleife (identisch zu oben mit wv)
-    t_slice = slice(N_t//4, 3*N_t//4)
-    stds = train_real_data[:, :, t_slice].std(axis=2, keepdims=True)
-    train_real_data_all = train_real_data / stds
-    train_real_data = train_real_data_all[:20,:,:]
-    val_real_data = train_real_data_all[20:,:,:]
-
-    test_real_data = []
-    for i, p in enumerate(test_paths):
-        with h5py.File(p, 'r') as hf:
-            DAS_sample = hf['DAS'][81:]
-            if channel_spacing == 20:
-                DAS_sample = DAS_sample[::5] #if dx = 20
-            test_real_data.append(DAS_sample)
-    test_real_data = np.stack(test_real_data)
-    gutter = 1000
-    test_real_data = np.pad(test_real_data, ((0,0),(0,0),(gutter,gutter)), mode='constant', constant_values=0)
-    chunks = np.array_split(test_real_data, 5)
-    processed_chunks = [bandpass(chunk, low=1.0, high=10.0, fs=sampling, gutter=gutter) for chunk in chunks]
-    test_real_data = np.concatenate(processed_chunks, axis=0)
-    batch, N_ch, N_t = test_real_data.shape
-    #effiziente for schleife (identisch zu oben mit wv)
-    t_slice = slice(N_t//4, 3*N_t//4)
-    stds = test_real_data[:, :, t_slice].std(axis=2, keepdims=True)
-    test_real_data = test_real_data / stds
-
-    real_dataset = RealDAS(train_real_data, nx=dasChanelsTrain, nt=nt, size=300*batchsize)
-    real_dataset_val = RealDAS(val_real_data, nx=dasChanelsVal, nt=nt, size=20*batchsize)
-    real_dataset_test = RealDAS(test_real_data, nx=dasChanelsTest, nt=nt, size=20*batchsize)
-    #"""
-    print("Datensätze geladen!")
-
-    wave = eq_strain_rates_test[6][4200:6248]
-    picture_DAS_syn = gerate_spezific_das(wave, nx=300, nt=2048, eq_slowness=1/(500), gauge=channel_spacing, fs=sampling)
-    picture_DAS_syn = picture_DAS_syn.to(device).type(torch.float32)
-    picture_DAS_real1 = torch.from_numpy(test_real_data[2][:,4576:]).to(device).type(torch.float32)
+    #wave = eq_strain_rates_test[6][4200:6248]
+    #picture_DAS_syn = gerate_spezific_das(wave, nx=304, nt=2048, eq_slowness=1/(500), gauge=channel_spacing, fs=sampling)
+    #picture_DAS_syn = picture_DAS_syn.to(device).type(torch.float32)
+    #picture_DAS_real1 = torch.from_numpy(test_real_data[2][:1472,4576:]).to(device).type(torch.float32) #shape=1482,7424
 
     
   
@@ -653,9 +675,12 @@ def main(argv=[]):
    
     #masking_methodes=['channel_1', 'channel_2', 'channel_3', 'random_value', 'circle_2', 'circle_3', 'oval_2_4', 'oval_3_5', 'pixel_10']
     masking_methodes=['channel_1', 'pixel zero', 'pixel jinv']
+    #masking_methodes=['channel_1', 'channel_2', 'channel_3', 'pixel zero', 'pixel jinv', 'channel-m2_1', 'pixel-m2_10', 'pixel jinv-m2']
+    masking_methodes=['channel-m2_1', 'pixel-m2_10', 'pixel jinv-m2']
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
     csv_file = os.path.join(store_path_root, 'best_results.csv')
+    load_data_new = 0
     for i in range(len(masking_methodes)):
         mask_methode = masking_methodes[i]
         print(mask_methode)
@@ -668,20 +693,34 @@ def main(argv=[]):
         tmp.mkdir(parents=True, exist_ok=True)
 
         print(f"n2self {i}")
+        
+
+        if 'm2' in mask_methode:
+            model = U_Net(1, first_out_chanel=8, scaling_kernel_size=(2,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
+            load_data_new += 1
+        else:
+            model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
+        if load_data_new == 1:
+            global dasChanelsTrain
+            global dasChanelsVal
+            global dasChanelsTest
+            dasChanelsTrain = 16
+            dasChanelsVal = 16
+            dasChanelsTest = 16
+            eq_strain_rates_test, dataset, dataset_validate, dataset_test, test_real_data, real_dataset, real_dataset_val, real_dataset_test = load_data(strain_train_dir, strain_test_dir)
+            wave = eq_strain_rates_test[6][4200:6248]
+            picture_DAS_syn = gerate_spezific_das(wave, nx=304, nt=2048, eq_slowness=1/(500), gauge=channel_spacing, fs=sampling)#304
+            picture_DAS_syn = picture_DAS_syn.to(device).type(torch.float32)
+            picture_DAS_real1 = torch.from_numpy(test_real_data[2][:1472,4576:]).to(device).type(torch.float32) #shape=1482,7424
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False)
 
-        #if modi == 0 or modi == 2:
-        model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
-        #else:
-            #model = Sebastian_N2SUNet(1,1,4).to(device)
-
         #svae best values in [[train syn, train real], [val syn, val real], [test syn, test real]] structure
         last_loss = [[-1,-1],[-1,-1],[-1,-1]] #lower = better
         best_psnr = [[-1,-1],[-1,-1],[-1,-1]] #higher = better
-        best_sv = [[-1,-1],[-1,-1],[-1,-1]] #lower = better
-        best_lsd = [[-1,-1],[-1,-1],[-1,-1]] #lower = better (Ruaschsignal ähnlich zur rekonstruction im Frequenzbereich)
+        best_sv = [[1000,1000],[1000,1000],[1000,1000]] #lower = better
+        best_lsd = [[1000,1000],[1000,1000],[1000,1000]] #lower = better (Ruaschsignal ähnlich zur rekonstruction im Frequenzbereich)
         best_coherence = [[-1,-1],[-1,-1],[-1,-1]] #1 = perfekte Korrelation zwischen Rauschsignale und Rekonstruktion; 0 = keine Korrelation
         best_cc = [[-1,-1],[-1,-1],[-1,-1]] #1 = perfekte Korrelation zwischen Rauschsignale und Rekonstruktion; 0 = keine Korrelation
 
@@ -708,9 +747,9 @@ def main(argv=[]):
             writer.add_scalar('LSD Train', statistics.mean(lsd_log), epoch)
             writer.add_scalar('Korelation Train', statistics.mean(coherence_log), epoch)
             writer.add_scalar('cc-Gain Train', statistics.mean(ccGain_log), epoch)
-
+            #break
             loss_val, psnr_val, scaledVariance_log_val, lsd_log_val, coherence_log_val, ccGain_log_val = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch, masking_methode=mask_methode) 
-
+            
             #if modi == 2:
                 #scheduler.step()
 
@@ -721,7 +760,7 @@ def main(argv=[]):
             writer.add_scalar('Korelation Val', statistics.mean(coherence_log_val), epoch)
             writer.add_scalar('cc-Gain Val', statistics.mean(ccGain_log_val), epoch)
 
-            if epoch % 5 == 0  or epoch==epochs-1:
+            if epoch % 10 == 0  or epoch==epochs-1:
                 with torch.no_grad():
                     save_example_wave(picture_DAS_syn, model, device, writer, epoch, mask_methode=mask_methode)
 
@@ -782,7 +821,7 @@ def main(argv=[]):
         dataLoader_test = DataLoader(real_dataset_test, batch_size=batchsize, shuffle=False)
         for epoch in tqdm(range(realEpochs)):
             #with torch.no_grad():
-                #denoised1 = reconstruct(model, device, picture_DAS_real1.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode).to('cpu').detach().numpy()
+                #denoised1 = reconstruct(model, device, picture_DAS_real1.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode, nx=dasChanelsTrain).to('cpu').detach().numpy()
 
             loss, psnr, scaledVariance_log, lsd_log, coherence_log, ccGain_log = train(model, device, dataLoader, optimizer, mode="train", writer=writer, epoch=epoch+epochs, masking_methode=mask_methode)
 
@@ -792,9 +831,9 @@ def main(argv=[]):
             writer.add_scalar('LSD Train', statistics.mean(lsd_log), epoch+epochs)
             writer.add_scalar('Korelation Train', statistics.mean(coherence_log), epoch+epochs)
             writer.add_scalar('cc-Gain Train', statistics.mean(ccGain_log), epoch+epochs)
-
+            #break
             loss_val, psnr_val, scaledVariance_log_val, lsd_log_val, coherence_log_val, ccGain_log_val = train(model, device, dataLoader_validate, optimizer, mode="val", writer=writer, epoch=epoch+epochs, masking_methode=mask_methode) 
-
+            
             #if modi == 2:
                 #scheduler.step()
 
@@ -807,7 +846,7 @@ def main(argv=[]):
 
             if epoch % 10 == 0  or epoch==epochs-1:
                 with torch.no_grad():
-                    denoised1 = reconstruct(model, device, picture_DAS_real1.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode).to('cpu').detach().numpy()
+                    denoised1 = reconstruct(model, device, picture_DAS_real1.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode, nx=dasChanelsTrain).to('cpu').detach().numpy()
                     save_example_wave(picture_DAS_real1, model, device, writer, epoch+epochs, denoised1[0][0], vmin=-1, vmax=1, mask_methode=mask_methode)
 
             current_lr = optimizer.param_groups[0]['lr']
@@ -838,7 +877,7 @@ def main(argv=[]):
                 best_cc[0][1] = statistics.mean(ccGain_log)
             if statistics.mean(ccGain_log_val) > best_cc[1][1]:
                 best_cc[1][1] = statistics.mean(ccGain_log_val)
-                
+        #"""       
         loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test, ccGain_log_test = train(model, device, dataLoader_test, optimizer, mode="test", writer=writer, epoch=1, masking_methode=mask_methode)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 1)
         writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 1)
@@ -861,14 +900,14 @@ def main(argv=[]):
         # Ergebnisse in den DataFrame einfügen
         #'train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real'
         #svae best values in [[train syn, train real], [val syn, val real], [test syn, test real]] structure
-        end_results.loc[:, (mask_methode, 'train syn')] = [last_loss[0][0], best_psnr[0][0], best_sv[0][0], best_lsd[0][0], best_coherence[0][0], best_cc[0][0]]
-        end_results.loc[:, (mask_methode, 'train real')] = [last_loss[0][1], best_psnr[0][1], best_sv[0][1], best_lsd[0][1], best_coherence[0][1], best_cc[0][1]]
+        end_results.loc[:, (mask_methode, 'train syn')] = [round(last_loss[0][0],3), round(best_psnr[0][0],3), round(best_sv[0][0],3), round(best_lsd[0][0],3), round(best_coherence[0][0],3), round(best_cc[0][0],3)]
+        end_results.loc[:, (mask_methode, 'train real')] = [round(last_loss[0][1],3), round(best_psnr[0][1],3), round(best_sv[0][1],3), round(best_lsd[0][1],3), round(best_coherence[0][1],3), round(best_cc[0][1],3)]
 
-        end_results.loc[:, (mask_methode, 'val syn')] = [last_loss[1][0], best_psnr[1][0], best_sv[1][0], best_lsd[1][0], best_coherence[1][0], best_cc[1][0]]
-        end_results.loc[:, (mask_methode, 'val real')] = [last_loss[1][1], best_psnr[1][1], best_sv[1][1], best_lsd[1][1], best_coherence[1][1], best_cc[1][1]]
+        end_results.loc[:, (mask_methode, 'val syn')] = [round(last_loss[1][0],3), round(best_psnr[1][0],3), round(best_sv[1][0],3), round(best_lsd[1][0],3), round(best_coherence[1][0],3), round(best_cc[1][0],3)]
+        end_results.loc[:, (mask_methode, 'val real')] = [round(last_loss[1][1],3), round(best_psnr[1][1],3), round(best_sv[1][1],3), round(best_lsd[1][1],3), round(best_coherence[1][1],3), round(best_cc[1][1],3)]
 
-        end_results.loc[:, (mask_methode, 'test syn')] = [last_loss[2][0], best_psnr[2][0], best_sv[2][0], best_lsd[2][0], best_coherence[2][0], best_cc[2][0]]
-        end_results.loc[:, (mask_methode, 'test real')] = [last_loss[2][1], best_psnr[2][1], best_sv[2][1], best_lsd[2][1], best_coherence[2][1], best_cc[2][1]]
+        end_results.loc[:, (mask_methode, 'test syn')] = [round(last_loss[2][0],3), round(best_psnr[2][0],3), round(best_sv[2][0],3), round(best_lsd[2][0],3), round(best_coherence[2][0],3), round(best_cc[2][0],3)]
+        end_results.loc[:, (mask_methode, 'test real')] = [round(last_loss[2][1],3), round(best_psnr[2][1],3), round(best_sv[2][1],3), round(best_lsd[2][1],3), round(best_coherence[2][1],3), round(best_cc[2][1],3)]
         end_results.index = ['Last Loss', 
                          'Best PSNR', 
                          'Best Scaled Variance', 
