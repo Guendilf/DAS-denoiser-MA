@@ -31,7 +31,7 @@ batchsize = 24
 dasChanelsTrain = 96
 dasChanelsVal = 96
 dasChanelsTest = 96
-nt = 128 #oder 30 sekunden bei samplingrate von 100Hz -> ?
+nt = 256 #standard ist 128
 
 lr = 0.001
 lr_end = 0.00001
@@ -82,9 +82,9 @@ def load_data(strain_train_dir, strain_test_dir, nx=None):
 
 
     eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=300*batchsize)
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, nt=nt, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=300*batchsize)
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, nt=nt, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, nt=nt, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
     #"""
     #---------------real daten laden----------------
     #"""
@@ -278,14 +278,14 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
         std = std.to(device).type(torch.float32)
         
         if "diffrent_noise" in mask_methode:
-            noise2 = 0.2 * np.random.randn(dasChanelsTrain, nt + 2*100)
-            noise2 = torch.from_numpy(bandpass(noise2, 1.0, 10.0, sampling, 100).copy())
+            noise2 = 0.2 * np.random.randn(clean.shape[0], 1, dasChanelsTrain, nt + 2*100)
+            noise2 = torch.from_numpy(bandpass(noise2, 1.0, 10.0, sampling, 100).copy()).to(device).type(torch.float32)
             noise_images2 = clean + noise2
             std2 = noise_images2.std(dim=-1, keepdim=True)
             noise_images2 /= std2
         elif "noise_on_noise" in mask_methode:
-            noise2 = np.random.randn(dasChanelsTrain, nt + 2*100)
-            noise2 = torch.from_numpy(bandpass(noise2, 1.0, 10.0, sampling, 100).copy())
+            noise2 = np.random.randn(clean.shape[0], 1, dasChanelsTrain, nt + 2*100)
+            noise2 = torch.from_numpy(bandpass(noise2, 1.0, 10.0, sampling, 100).copy()).to(device).type(torch.float32)
             noise_images2 = noise_images + noise2
             std2 = noise_images2.std(dim=-1, keepdim=True)
             noise_images2 /= std2
@@ -371,7 +371,7 @@ def main(argv=[]):
     else:
         store_path_root = log_files()
 
-    masking_methodes = ['same_noise', 'diffrent_noise', 'noise_on_noise']
+    masking_methodes = ['same_noise', 'diffrent_noise', 'noise_on_noise']#
 
 
     last_loss = [[-1,-1],[-1,-1],[-1,-1]] #lower = better
@@ -413,7 +413,7 @@ def main(argv=[]):
         bestPsnrVal=0
         bestPsnrTest=0
         for epoch in tqdm(range(epochs)):
-
+            #break
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, scheduler, mode="train", writer=writer, epoch=epoch, mask_methode=mask_methode)
             scheduler.step()
 
@@ -434,7 +434,7 @@ def main(argv=[]):
             if epoch % 10 == 0  or epoch==epochs-1:
                 with torch.no_grad():
                     save_example_wave(picture_DAS_syn, model, device, writer, epoch, mask_methode=mask_methode)
-
+            #break
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar('Lernrate', current_lr, epoch)
 
@@ -463,7 +463,7 @@ def main(argv=[]):
                 #best_cc[0][0] = statistics.mean(ccGain_log)
             #if statistics.mean(ccGain_log_val) > best_cc[1][0]:
                 #best_cc[1][0] = statistics.mean(ccGain_log_val)
-
+        #"""
         loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test = train(model, device, dataLoader_test, optimizer, scheduler, mode="test", writer=writer, epoch=0, mask_methode=mask_methode)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)
         writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 0)
@@ -480,7 +480,7 @@ def main(argv=[]):
         last_loss[0][0] = loss[-1]
         last_loss[1][0] = loss_val[-1]
         last_loss[2][0] = loss_test[-1]
-
+        #"""
         #-------------real data----------------
         #"""
         print("real data")
@@ -490,7 +490,7 @@ def main(argv=[]):
         dataLoader_test = DataLoader(real_dataset_test, batch_size=batchsize, shuffle=False)
         for epoch in tqdm(range(realEpochs)):
             #with torch.no_grad():
-                #denoised1 = reconstruct(model, device, picture_DAS_real1.unsqueeze(0).unsqueeze(0), mask_methode=mask_methode, nx=dasChanelsTrain).to('cpu').detach().numpy()
+                #denoised1 = reconstruct(model, picture_DAS_real1.unsqueeze(0).unsqueeze(0)).to('cpu').detach().numpy()
 
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, scheduler, mode="train", writer=writer, epoch=epoch, mask_methode=mask_methode)
 
@@ -505,7 +505,7 @@ def main(argv=[]):
             
             #if modi == 2:
                 #scheduler.step()
-
+            #break
             writer.add_scalar('Loss Val', statistics.mean(loss_val), epoch+epochs)
             writer.add_scalar('PSNR Val', statistics.mean(psnr_val), epoch+epochs)
             writer.add_scalar('Scaled Variance Val', statistics.mean(scaledVariance_log_val), epoch+epochs)

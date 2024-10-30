@@ -416,8 +416,20 @@ class RealDAS(Dataset):
             patch = torch.flip(patch, dims=(1,))
         if np.random.random() < 0.5:
             patch *= -1 
+
+        sample2 = patch.clone()
+        snr = 10 ** 1
+        amp = 2 * np.sqrt(snr) / torch.abs(sample2 + 1e-10).max()
+        sample2 *= amp
+
+        gutter = 100
+        noise = np.random.randn(self.nx, self.nt + 2*gutter)
+        noise = torch.from_numpy(bandpass(noise, 1.0, 10.0, 50.0, gutter).copy())
+        sample2 = sample2 + noise
+        scale2 = sample2.std(dim=-1, keepdim=True)
+        sample2 /= scale2
         #       noise_images,        clean,                 noise,         std=1, amp=0, _, _, _
-        return patch.unsqueeze(0), patch.unsqueeze(0), patch.unsqueeze(0), torch.ones((1, self.nx, 1)), 0, 0, 0, 0
+        return patch.unsqueeze(0), patch.unsqueeze(0), patch.unsqueeze(0), torch.ones((1, self.nx, 1)), 0, sample2.unsqueeze(0), noise.unsqueeze(0), scale2.unsqueeze(0)
 
 
 def bandpass(x, low, high, fs, gutter, alpha=0.1):
