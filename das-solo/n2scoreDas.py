@@ -22,7 +22,7 @@ from unet_copy import UNet as unet
 from import_files import SyntheticNoiseDAS, RealDAS
 from utils_DAS import moving_window_semblance, semblance
 from plots import generate_wave_plot, generate_das_plot3, generate_real_das_plot
-from utils_DAS import compute_moving_coherence
+from utils_DAS import compute_moving_coherence, correct_shift_gpu
 import pandas as pd
 
 #tensorboard --logdir="E:\Bibiotheken\Dokumente\02 Uni\1 MA\Code\DAS-denoiser-MA\runs"      #PC
@@ -43,7 +43,7 @@ save_model = False
 
 gauge_length = 10
 channel_spacing = 20#oder 19.2
-snr = (-2,4) #(np.log(0.01), np.log(10)) for synthhetic?
+snr = 1#(-2,4)
 slowness = (1/10000, 1/200) #(0.2*10**-3, 10*10**-3) #angabe in m/s, laut paper 0.2 bis 10 km/s     defaault: # (0.0001, 0.005)
 sampling = 50.0
 
@@ -56,6 +56,97 @@ TODO:
 - channel_spacing = 19,2
 - 50 Hz frequenz
 """
+
+def load_data(strain_train_dir, strain_test_dir, nx=None):
+    global dasChanelsTrain
+    global dasChanelsVal
+    global dasChanelsTest
+    if nx:
+        dasChanelsTrain = nx
+        dasChanelsVal = nx
+        dasChanelsTest = nx
+        
+    print("lade Synthetische Datensätze ...")
+    #"""
+    eq_strain_rates = np.load(strain_train_dir)
+    # Normalise waveforms
+    N_ch, N_t = eq_strain_rates.shape
+    t_slice = slice(N_t//4, 3*N_t//4)
+    stds = eq_strain_rates[:, t_slice].std(axis=1, keepdims=True)
+    eq_strain_rates = eq_strain_rates / stds
+
+    split_idx = int(0.8 * len(eq_strain_rates))
+    eq_strain_rates_train = torch.tensor(eq_strain_rates[:split_idx])
+    eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
+
+    eq_strain_rates_test = np.load(strain_test_dir)
+    # Normalise waveforms
+    N_ch, N_t = eq_strain_rates_test.shape
+    t_slice = slice(N_t//4, 3*N_t//4)
+    stds = eq_strain_rates_test[:, t_slice].std(axis=1, keepdims=True)
+    eq_strain_rates_test = eq_strain_rates_test / stds
+
+
+
+    eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
+    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=300*batchsize)
+    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
+    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
+    #"""
+    #---------------real daten laden----------------
+    #"""
+    print("lade Reale Datensätze ...")
+    train_path = "Server_DAS/real_train/"
+    test_path = "Server_DAS/real_test/"
+    train_path = sorted([train_path + f for f in os.listdir(train_path)])
+    test_paths = sorted([test_path + f for f in os.listdir(test_path)])
+
+    train_real_data = []
+    for i, p in enumerate(train_path):
+        with h5py.File(p, 'r') as hf:
+            DAS_sample = hf['DAS'][81:]
+            if channel_spacing == 20:
+                DAS_sample = DAS_sample[::5] #if dx = 20
+            train_real_data.append(DAS_sample)
+    train_real_data = np.stack(train_real_data)
+    gutter = 1000
+    train_real_data = np.pad(train_real_data, ((0,0),(0,0),(gutter,gutter)), mode='constant', constant_values=0)
+    chunks = np.array_split(train_real_data, 10)
+    processed_chunks = [bandpass(chunk, low=1.0, high=10.0, fs=sampling, gutter=gutter) for chunk in chunks]
+    train_real_data = np.concatenate(processed_chunks, axis=0)
+    batch, N_ch, N_t = train_real_data.shape
+    #effiziente for schleife (identisch zu oben mit wv)
+    t_slice = slice(N_t//4, 3*N_t//4)
+    stds = train_real_data[:, :, t_slice].std(axis=2, keepdims=True)
+    train_real_data_all = train_real_data / stds
+    train_real_data = train_real_data_all[:20,:,:]
+    val_real_data = train_real_data_all[20:,:,:]
+
+    test_real_data = []
+    for i, p in enumerate(test_paths):
+        with h5py.File(p, 'r') as hf:
+            DAS_sample = hf['DAS'][81:]
+            if channel_spacing == 20:
+                DAS_sample = DAS_sample[::5] #if dx = 20
+            test_real_data.append(DAS_sample)
+    test_real_data = np.stack(test_real_data)
+    gutter = 1000
+    test_real_data = np.pad(test_real_data, ((0,0),(0,0),(gutter,gutter)), mode='constant', constant_values=0)
+    chunks = np.array_split(test_real_data, 5)
+    processed_chunks = [bandpass(chunk, low=1.0, high=10.0, fs=sampling, gutter=gutter) for chunk in chunks]
+    test_real_data = np.concatenate(processed_chunks, axis=0)
+    batch, N_ch, N_t = test_real_data.shape
+    #effiziente for schleife (identisch zu oben mit wv)
+    t_slice = slice(N_t//4, 3*N_t//4)
+    stds = test_real_data[:, :, t_slice].std(axis=2, keepdims=True)
+    test_real_data = test_real_data / stds
+
+    real_dataset = RealDAS(train_real_data, nx=dasChanelsTrain, nt=nt, size=300*batchsize)
+    real_dataset_val = RealDAS(val_real_data, nx=dasChanelsVal, nt=nt, size=20*batchsize)
+    real_dataset_test = RealDAS(test_real_data, nx=dasChanelsTest, nt=nt, size=20*batchsize)
+    #"""
+    print("Datensätze geladen!")
+    return eq_strain_rates_test,dataset,dataset_validate,dataset_test,test_real_data,real_dataset,real_dataset_val,real_dataset_test
 
 
 
@@ -216,6 +307,7 @@ def evaluateSigma(noise_image, vector):
         
         simple_out = noise_image + sigma**2 * vector.detach()
         simple_out = (simple_out + 1) / 2
+        simple_out = correct_shift_gpu(simple_out)
         quality_metric += [tv_norm(simple_out).item()]
     
     sigmas = sigmas.numpy()
@@ -224,8 +316,8 @@ def evaluateSigma(noise_image, vector):
     return quality_metric[best_idx], sigmas[best_idx]
 
 def calculate_loss(noise_image, model, batch_idx, device, len_dataLoader):
-    sigma_min=0.01
-    sigma_max=0.3
+    sigma_min=0.03
+    sigma_max=1.0
     q=batch_idx/len_dataLoader
 
     u = torch.randn_like(noise_image).to(device)
@@ -253,6 +345,8 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         amp = amp.to(device).type(torch.float32)
         true_sigma.append(noise.std())
 
+        noise_images = noise_images * std
+
         if mode == "train":
             model.train()
             loss, vectorMap = calculate_loss(noise_images, model, batch_idx, device, len(dataLoader))
@@ -270,8 +364,8 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, tweedie='ga
         all_tvs.append(best_tv)
 
         #norming war eigentlich an der Stelle
-        noise_images *= std
-        denoised *= std
+        #noise_images *= std
+        #denoised *= std
 
         #calculate psnr
         max_intensity=clean.max()-clean.min()
@@ -342,86 +436,8 @@ def main(argv=[]):
     strain_train_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
     strain_test_dir = "data/DAS/SIS-rotated_test_50Hz.npy"
 
-    print("lade Synthetische Datensätze ...")
-    #"""
-    eq_strain_rates = np.load(strain_train_dir)
-    # Normalise waveforms
-    N_ch, N_t = eq_strain_rates.shape
-    t_slice = slice(N_t//4, 3*N_t//4)
-    stds = eq_strain_rates[:, t_slice].std(axis=1, keepdims=True)
-    eq_strain_rates = eq_strain_rates / stds
+    eq_strain_rates_test, dataset, dataset_validate, dataset_test, test_real_data, real_dataset, real_dataset_val, real_dataset_test = load_data(strain_train_dir, strain_test_dir)
 
-    split_idx = int(0.8 * len(eq_strain_rates))
-    eq_strain_rates_train = torch.tensor(eq_strain_rates[:split_idx])
-    eq_strain_rates_val = torch.tensor(eq_strain_rates[split_idx:])
-
-    eq_strain_rates_test = np.load(strain_test_dir)
-    # Normalise waveforms
-    N_ch, N_t = eq_strain_rates_test.shape
-    t_slice = slice(N_t//4, 3*N_t//4)
-    stds = eq_strain_rates_test[:, t_slice].std(axis=1, keepdims=True)
-    eq_strain_rates_test = eq_strain_rates_test / stds
-
-
-
-    eq_strain_rates_test = torch.tensor(eq_strain_rates_test)
-    dataset = SyntheticNoiseDAS(eq_strain_rates_train, nx=dasChanelsTrain, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=300*batchsize)
-    dataset_validate = SyntheticNoiseDAS(eq_strain_rates_val, nx=dasChanelsVal, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
-    dataset_test = SyntheticNoiseDAS(eq_strain_rates_test, nx=dasChanelsTest, eq_slowness=slowness, log_SNR=snr, gauge=channel_spacing, size=30*batchsize)
-    #"""
-    #---------------real daten laden----------------
-    #"""
-    print("lade Reale Datensätze ...")
-    train_path = "Server_DAS/real_train/"
-    test_path = "Server_DAS/real_test/"
-    train_path = sorted([train_path + f for f in os.listdir(train_path)])
-    test_paths = sorted([test_path + f for f in os.listdir(test_path)])
-
-    train_real_data = []
-    for i, p in enumerate(train_path):
-        with h5py.File(p, 'r') as hf:
-            DAS_sample = hf['DAS'][81:]
-            if channel_spacing == 20:
-                DAS_sample = DAS_sample[::5]
-            train_real_data.append(DAS_sample)
-    train_real_data = np.stack(train_real_data)
-    gutter = 1000
-    train_real_data = np.pad(train_real_data, ((0,0),(0,0),(gutter,gutter)), mode='constant', constant_values=0)
-    chunks = np.array_split(train_real_data, 10)
-    processed_chunks = [bandpass(chunk, low=1.0, high=10.0, fs=sampling, gutter=gutter) for chunk in chunks]
-    train_real_data = np.concatenate(processed_chunks, axis=0)
-    batch, N_ch, N_t = train_real_data.shape
-    #effiziente for schleife (identisch zu oben mit wv)
-    t_slice = slice(N_t//4, 3*N_t//4)
-    stds = train_real_data[:, :, t_slice].std(axis=2, keepdims=True)
-    train_real_data_all = train_real_data / stds
-    train_real_data = train_real_data_all[:20,:,:]
-    val_real_data = train_real_data_all[20:,:,:]
-
-    test_real_data = []
-    for i, p in enumerate(test_paths):
-        with h5py.File(p, 'r') as hf:
-            DAS_sample = hf['DAS'][81:]
-            if channel_spacing == 20:
-                DAS_sample = DAS_sample[::5]
-            test_real_data.append(DAS_sample)
-    test_real_data = np.stack(test_real_data)
-    gutter = 1000
-    test_real_data = np.pad(test_real_data, ((0,0),(0,0),(gutter,gutter)), mode='constant', constant_values=0)
-    chunks = np.array_split(test_real_data, 5)
-    processed_chunks = [bandpass(chunk, low=1.0, high=10.0, fs=sampling, gutter=gutter) for chunk in chunks]
-    test_real_data = np.concatenate(processed_chunks, axis=0)
-    batch, N_ch, N_t = test_real_data.shape
-    #effiziente for schleife (identisch zu oben mit wv)
-    t_slice = slice(N_t//4, 3*N_t//4)
-    stds = test_real_data[:, :, t_slice].std(axis=2, keepdims=True)
-    test_real_data = test_real_data / stds
-
-    real_dataset = RealDAS(train_real_data, nx=dasChanelsTrain, nt=nt, size=200*batchsize)
-    real_dataset_val = RealDAS(val_real_data, nx=dasChanelsVal, nt=nt, size=20*batchsize)
-    real_dataset_test = RealDAS(test_real_data, nx=dasChanelsTest, nt=nt, size=20*batchsize)
-    #"""
-    print("Datensätze geladen!")
 
     wave = eq_strain_rates_test[6][4200:6248]
     picture_DAS_syn = gerate_spezific_das(wave, nx=300, nt=2048, eq_slowness=1/(500), gauge=channel_spacing, fs=sampling)
@@ -436,7 +452,7 @@ def main(argv=[]):
         store_path_root = log_files()
     global modi
    
-    masking_methodes=['real_1_1']#, 'gaus']
+    masking_methodes=[ 'gaus']#'real_1_1',
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
 

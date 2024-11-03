@@ -126,3 +126,48 @@ def local_snr(image, window_size, moveout=False, cc_thresh=0.9):
             else:
                 snr_map[i, j] = 0  # Vermeide Division durch 0
     return snr_map
+
+
+def estimate_shift_gpu(data):
+    batch_size, num_channels, time_length = data.shape
+    reference_row_index = num_channels // 2  # Index der mittleren Zeile
+    reference_row = data[:, reference_row_index, :]  # Wähle die Referenzzeile aus
+    shifts = torch.zeros(num_channels, device=data.device)  # Speichere die Shifts auf der GPU
+    for i in range(num_channels):
+        if i != reference_row_index:  # Vermeide die Referenzzeile selbst
+            # Berechne die Kreuzkorrelation
+            correlation = torch.nn.functional.conv1d(data[:, i, :].unsqueeze(1), 
+                                                     reference_row.unsqueeze(1).flip(-1), 
+                                                     padding=time_length - 1)
+            # Finde den Index mit dem maximalen Wert in der Kreuzkorrelation
+            shift = torch.argmax(correlation) - (time_length - 1)
+            shifts[i] = shift
+
+    return shifts
+def correct_shift_gpu(data):
+    """Args:
+    data (torch.Tensor): Ein 3D-Tensor mit den Dimensionen (batch, features=1, channels, time).
+    Returns:
+    corrected_data (torch.Tensor): geshiftetes DAS (batch, features=1, channels, time).
+    Anmerkung: Die Funktion ist für den GPU-Betrieb optimiert aber hat leichte Artefakte auf der hälte des Bildes
+    """
+    data = data.squeeze(1)  # Reduziere die Feature-Dimension
+    batch_size, num_channels, time_length = data.shape
+    corrected_data = data.clone()  # Kopiere das Original-Array
+    shifts = estimate_shift_gpu(data)
+    reference_row_index = num_channels // 2  # Index der mittleren Zeile
+    for idx, shift in enumerate(shifts):
+        # Berücksichtige, dass der Index in 'shifts' die Referenzzeile nicht berücksichtigt
+        if idx < reference_row_index:
+            row_index = idx  # Keine Änderung am Index
+        else:
+            row_index = idx + 1  # Verschiebe den Index nach rechts
+        # Überprüfe, ob row_index innerhalb der gültigen Grenzen liegt
+        if row_index >= num_channels:
+            continue  # Überspringe, wenn der Index ungültig ist
+        # Um sicherzustellen, dass shift als int verwendet wird
+        shift_int = int(shift.item())  # Konvertiere den Tensor in einen int-Wert
+        # Korrigiere den Shift: negative Werte bewegen die Zeile nach links, positive nach rechts
+        corrected_data[:, row_index, :] = torch.roll(data[:, row_index, :], -shift_int, dims=-1)
+
+    return corrected_data.unsqueeze(1)
