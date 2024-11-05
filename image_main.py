@@ -8,6 +8,7 @@ from tqdm import tqdm
 from skimage.metrics import structural_similarity as sim
 
 import config_test as config
+#import config as config
 
 from models.N2N_Unet import N2N_Unet_DAS, N2N_Orig_Unet, Cut2Self, U_Net_origi, U_Net, TestNet
 from metric import Metric
@@ -142,7 +143,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
         if mode=="test" or mode =="validate":
             model.eval()
             with torch.no_grad():
-                loss, _, _, _, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, radius=config.methodes[methode]['radius'])
+                loss, _, _, _, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, radius=3)
                 (_, _, _, est_sigma_opt) = optional_tuples
                 if "n2noise" in methode:
                     denoised = model (noise_images)            
@@ -171,7 +172,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
                 elif "s2self" in methode:
                     denoised = torch.ones_like(noise_images)
                     for i in range(max_Predictions):
-                        _, denoised_tmp, _, _, flip = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, radius=config.methodes[methode]['radius'])
+                        _, denoised_tmp, _, _, flip = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, radius=3)
                         (lr, ud, _, _) = flip
                         #denoised_tmp = filp_lr_ud(denoised_tmp, lr, ud)
                         denoised = denoised + denoised_tmp
@@ -240,7 +241,7 @@ def train(model, optimizer, scheduler, device, dataLoader, methode, sigma, mode,
         else:
             model.train()
             #original, noise_images are only important if n2void
-            loss, denoised, original, noise_images, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, sigma_info=sigma_info, radius=config.methodes[methode]['radius'])
+            loss, denoised, original, noise_images, optional_tuples = calculate_loss(model, device, dataLoader, methode, true_noise_sigma, batch_idx, original, noise_images, noise_images2, augmentation, dropout_rate=dropout_rate, sigma_info=sigma_info, radius=3)# TODO:, radius=config.methodes[methode]['radius'])
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -341,8 +342,9 @@ def main(argv):
     
     print(f"Using {device} device")
 
-    
+    methoden_liste = ["n2same"]
     #for methode in methoden_liste:
+        #method_params = config.methodes[methode]
     for methode, method_params in config.methodes.items():
 
         #create to folders for loging details
