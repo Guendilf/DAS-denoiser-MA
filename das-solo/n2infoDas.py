@@ -558,7 +558,7 @@ def main(argv=[]):
         mask_methode = masking_methodes[i]
         print(mask_methode)
 
-        store_path = Path(os.path.join(store_path_root, f"n2info-{modi}"))
+        store_path = Path(os.path.join(store_path_root, f"n2info-{mask_methode}"))
         store_path.mkdir(parents=True, exist_ok=True)
         tmp = Path(os.path.join(store_path, "tensorboard"))
         tmp.mkdir(parents=True, exist_ok=True)
