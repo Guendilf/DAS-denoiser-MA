@@ -159,7 +159,7 @@ def visualise_spectrum(spectrum_noise, spectrum_denoised):
 
     plt.tight_layout()
     #plt.show()
-def reconstruct(model, device, data, mask_methode, nx=11, nt=2048,):
+def reconstruct(model, device, data, mask_methode, nx=11, nt=2048):
     #TODO: make it work with whole batches
     #start = time.time()
     if "channel" in mask_methode:
@@ -385,14 +385,19 @@ def calculate_loss(noise_image, model, batch_idx, device, methode, lambda_inv=2)
         maskChanels = int(maskChanels)
         mask = channelwise_mask(noise_image, width=maskChanels)
     else:
-        mask, marked_points = mask_random(noise_image, maskamount=0.005, mask_size=(1,1))
-    #mask = channelwise_mask(noise_image)
-    #new
-    #_,_,mask = Mask.crop_augment_stratified_mask(noise_images, (noise_images.shape[-2],noise_images.shape[-1]), 0.5, augment=False)
-    marked_points = torch.sum(mask)
-
+        if 'fancy' in methode:
+            _, channel, time = methode.split('_')
+            channel = int(channel)
+            time = int(time)
+            mask, marked_points = mask_random(noise_image, maskamount=0.005, mask_size=(channel,time))
+        else:
+            mask, marked_points = mask_random(noise_image, maskamount=0.005, mask_size=(1,1))
     mask = mask.to(device)
-    masked_input = (1-mask) * noise_image + (torch.normal(0, 0.2, size=noise_image.shape).to(device) * mask)
+    marked_points = torch.sum(mask)
+    if 'random' in methode:
+        masked_input = (1-mask) * noise_image + (torch.normal(0, 0.2, size=noise_image.shape).to(device) * mask)
+    else: #zero
+        masked_input = (1-mask) * noise_image 
     
     denoised = model(noise_image)
     denoised_mask = model(masked_input)
@@ -478,12 +483,14 @@ def train(model, device, dataLoader, optimizer, mode, writer, epoch, methode):
             writer.add_scalar(f'Sigma {mode}', noise.std(), global_step=epoch * len(dataLoader) + batch_idx)
     return loss_log, psnr_log, scaledVariance_log, lsd_log, coherence_log, ccGain_log
 
+
+
 def main(argv=[]):
     print("Starte Programm n2same")
     if torch.cuda.device_count() == 1:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
-        device = "cuda:2"
+        device = "cuda:1"
     
     strain_train_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
     strain_test_dir = "data/DAS/SIS-rotated_test_50Hz.npy"
@@ -504,11 +511,10 @@ def main(argv=[]):
     global modi
    
 
-    masking_methodes=['channel_1_zero batchnorm', 'channel_1_random batchnorm']#, 'channel_1_zero', 'channel_1_random'] #noch mit pixel möglich
+    masking_methodes=['channel_1_random batchnorm', 'pixel random batchnorm fancy_1_13', 'pixel batchnorm fancy_1_13']#, 'channel_1_zero', 'channel_1_random'] #noch mit pixel möglich
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
     csv_file = os.path.join(store_path_root, 'best_results.csv')
-    load_data_new = 0
     for i in range(len(masking_methodes)):
         mask_methode = masking_methodes[i]
         print(mask_methode)
@@ -732,6 +738,7 @@ def main(argv=[]):
                          'Best Coherence',
                          'Best cc-Gain']
         end_results.to_csv(csv_file, index=True)
+        print(end_results)
         modi += 1
 
     print("n2same fertig")

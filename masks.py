@@ -74,14 +74,13 @@ class Mask:
             if num_regions == 0:
                 num_regions = 1
             masks = []
-            print("mask_random else teil")
             for _ in range(img.shape[0]):
-                mask = torch.zeros(img.shape[-1], img.shape[-2], dtype=torch.float32)
+                mask = torch.zeros(img.shape[-2], img.shape[-1], dtype=torch.float32)
                 for _ in range(num_regions):        # generiere eine maske
-                    x = torch.randint(0, img.shape[-1] - mask_size[1] + 1, (1,))
-                    y = torch.randint(0, img.shape[-2] - mask_size[0] + 1, (1,))
+                    x = torch.randint(0, img.shape[-2] - mask_size[0] + 1, (1,))
+                    y = torch.randint(0, img.shape[-1] - mask_size[1] + 1, (1,))
                     mask[x:x+mask_size[0], y:y+mask_size[1]] = 1
-                masks.append(mask)
+                masks.append(mask)        
         
         mask = torch.stack(masks, dim=0)
         mask = mask.unsqueeze(1)  # (b, 1, w, h)

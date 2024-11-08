@@ -527,12 +527,12 @@ def mask_random(img, maskamount, mask_size=(4,4)):
         return mask, torch.count_nonzero(mask)
     
     else:
-        print("maske gefährlich, weil nicht gecheckt")
+        #print("maske gefährlich, weil nicht gecheckt")
         for _ in range(img.shape[0]):
-            mask = torch.zeros(img.shape[-1], img.shape[-2], dtype=torch.float32)
+            mask = torch.zeros(img.shape[-2], img.shape[-1], dtype=torch.float32)
             for _ in range(num_regions):        # generiere eine maske
-                x = torch.randint(0, img.shape[-1] - mask_size[1] + 1, (1,))
-                y = torch.randint(0, img.shape[-2] - mask_size[0] + 1, (1,))
+                x = torch.randint(0, img.shape[-2] - mask_size[0] + 1, (1,))
+                y = torch.randint(0, img.shape[-1] - mask_size[1] + 1, (1,))
                 mask[x:x+mask_size[0], y:y+mask_size[1]] = 1
             masks.append(mask)
     
