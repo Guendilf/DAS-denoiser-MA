@@ -420,7 +420,10 @@ class RealDAS(Dataset):
         sample2 = patch.clone()
         snr = 10 ** 1
         amp = 2 * np.sqrt(snr) / torch.abs(sample2 + 1e-10).max()
-        sample2 *= amp
+        #make sure the expected value does not change
+        mean_before = sample2.mean()
+        sample2 = (sample2 - mean_before) * amp
+        sample2 += mean_before
 
         gutter = 100
         noise = np.random.randn(self.nx, self.nt + 2*gutter)
