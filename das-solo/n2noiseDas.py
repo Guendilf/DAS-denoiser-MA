@@ -461,7 +461,7 @@ def main(argv=[]):
             #break
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, scheduler, mode="train", writer=writer, epoch=epoch, mask_methode=mask_methode)
             scheduler.step()
-            break
+            #break
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
             writer.add_scalar('PSNR Train', statistics.mean(psnr), epoch)
             writer.add_scalar('Scaled Variance Train', statistics.mean(scaledVariance_log), epoch)
@@ -508,7 +508,7 @@ def main(argv=[]):
                 #best_cc[0][0] = statistics.mean(ccGain_log)
             #if statistics.mean(ccGain_log_val) > best_cc[1][0]:
                 #best_cc[1][0] = statistics.mean(ccGain_log_val)
-        """
+        #"""
         loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test = train(model, device, dataLoader_test, optimizer, scheduler, mode="test", writer=writer, epoch=0, mask_methode=mask_methode)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 0)
         writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 0)
@@ -525,7 +525,7 @@ def main(argv=[]):
         last_loss[0][0] = loss[-1]
         last_loss[1][0] = loss_val[-1]
         last_loss[2][0] = loss_test[-1]
-        """
+        #"""
         #-------------real data----------------
         #"""
         print("real data")
@@ -534,8 +534,8 @@ def main(argv=[]):
         dataLoader_validate = DataLoader(real_dataset_val, batch_size=batchsize, shuffle=False)
         dataLoader_test = DataLoader(real_dataset_test, batch_size=batchsize, shuffle=False)
         for epoch in tqdm(range(realEpochs)):
-            with torch.no_grad():
-                denoised1 = reconstruct(model, picture_DAS_real1.unsqueeze(0).unsqueeze(0)).to('cpu').detach().numpy()
+            #with torch.no_grad():
+                #denoised1 = reconstruct(model, picture_DAS_real1.unsqueeze(0).unsqueeze(0)).to('cpu').detach().numpy()
 
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, scheduler, mode="train", writer=writer, epoch=epoch, mask_methode=mask_methode)
 
@@ -545,7 +545,7 @@ def main(argv=[]):
             writer.add_scalar('LSD Train', statistics.mean(lsd_log), epoch+epochs)
             writer.add_scalar('Korelation Train', statistics.mean(coherence_log), epoch+epochs)
             #writer.add_scalar('cc-Gain Train', statistics.mean(ccGain_log), epoch+epochs)
-            break
+            #break
             loss_val, psnr_val, scaledVariance_log_val, lsd_log_val, coherence_log_val = train(model, device, dataLoader_validate, optimizer, scheduler, mode="val", writer=writer, epoch=epoch, mask_methode=mask_methode) 
             
             #if modi == 2:
@@ -591,7 +591,7 @@ def main(argv=[]):
                 #best_cc[0][1] = statistics.mean(ccGain_log)
             #if statistics.mean(ccGain_log_val) > best_cc[1][1]:
                 #best_cc[1][1] = statistics.mean(ccGain_log_val)
-        """       
+        #"""       
         loss_test, psnr_test, scaledVariance_log_test, lsd_log_test, coherence_log_test = train(model, device, dataLoader_test, optimizer, scheduler, mode="test", writer=writer, epoch=0, mask_methode=mask_methode)
         writer.add_scalar('Loss Test', statistics.mean(loss_test), 1)
         writer.add_scalar('PSNR Test', statistics.mean(psnr_test), 1)
@@ -609,7 +609,7 @@ def main(argv=[]):
         last_loss[0][1] = loss[-1]
         last_loss[1][1] = loss_val[-1]
         last_loss[2][1] = loss_test[-1]
-        """
+        #"""
 
         # Ergebnisse in den DataFrame einfügen
         #'train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real'
