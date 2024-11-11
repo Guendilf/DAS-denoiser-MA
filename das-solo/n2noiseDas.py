@@ -27,11 +27,19 @@ from scipy import signal
 
 epochs = 300 #2.000 epochen - 1 Epoche = 3424 samples
 realEpochs = 100
+"""
 batchsize = 24
 dasChanelsTrain = 96
 dasChanelsVal = 96
 dasChanelsTest = 96
 nt = 256 #standard ist 128
+"""
+batchsize = 32
+maskChanels = 1
+dasChanelsTrain = 11*maskChanels
+dasChanelsVal = 11*maskChanels
+dasChanelsTest = 11*maskChanels
+nt = 2048
 
 lr = 0.001
 lr_end = 0.00001
@@ -396,12 +404,17 @@ def main(argv=[]):
     else:
         store_path_root = log_files()
 
-    masking_methodes = ['diffrent_noise', 'noise_on_noise', 'noise_on_noise_snr']#
+    masking_methodes = ['diffrent_noise', 'noise_on_noise', 'noise_on_noise_snr', 'diffrent_noise original shape']#
 
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
     csv_file = os.path.join(store_path_root, 'best_results.csv')
 
+    global batchsize
+    global dasChanelsTrain
+    global dasChanelsVal
+    global dasChanelsTest
+    global nt
     
     global modi
     for i in range(len(masking_methodes)):
@@ -416,6 +429,14 @@ def main(argv=[]):
         tmp.mkdir(parents=True, exist_ok=True)
 
         print(f"n2noise {i}")
+
+        if 'original shape' in mask_methode:
+            batchsize = 24
+            dasChanelsTrain = 96
+            dasChanelsVal = 96
+            dasChanelsTest = 96
+            nt = 256 #standard ist 128
+            eq_strain_rates_test, dataset, dataset_validate, dataset_test, test_real_data, real_dataset, real_dataset_val, real_dataset_test = load_data(strain_train_dir, strain_test_dir)
 
         dataLoader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(dataset_validate, batch_size=batchsize, shuffle=False)
