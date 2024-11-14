@@ -44,7 +44,11 @@ nt = 2048
 lr = 0.001
 lr_end = 0.00001
 # Define the lambda function for the learning rate scheduler
-lambda_lr = lambda epoch: lr_end + (lr - lr_end) * (1 - epoch / epochs)
+#lambda_lr = lambda epoch: lr_end + (lr - lr_end) * (1 - epoch / epochs)
+def get_scheduler(optimizer, epochs):
+    # Lambda-Funktion, die die Lernrate basierend auf der Epochenzahl skaliert
+    lambda_lr = lambda epoch: (1 - epoch / epochs) * (lr - lr_end) / lr + (lr_end / lr)
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_lr)
 
 batchnorm = False
 save_model = False
@@ -99,6 +103,9 @@ def load_data(strain_train_dir, strain_test_dir, nx=None):
     print("lade Reale Datensätze ...")
     train_path = "Server_DAS/real_train/"
     test_path = "Server_DAS/real_test/"
+    #train_path = "D:/DAS/Server_DAS/real_train/"
+    #test_path = "D:/DAS/Server_DAS/real_test/"
+
     train_path = sorted([train_path + f for f in os.listdir(train_path)])
     test_paths = sorted([test_path + f for f in os.listdir(test_path)])
 
@@ -202,7 +209,7 @@ def save_example_wave(clean_das_original, model, device, writer, epoch, real_den
 
         buf = io.BytesIO()
         das_plot_fig.savefig(buf, format='png')
-        #plt.show()
+        plt.show()
         plt.close(das_plot_fig)
         buf.seek(0)
         img = np.array(Image.open(buf))
@@ -299,13 +306,13 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
             noise_images2 /= std2
             """
         elif "noise_on_noise" in mask_methode: #only one messurement -> simulate secound one without knowlage of real noise level and type
-            if 'snr' in mask_methode:
-                snr = 10 ** np.random.uniform(-2, 4)
-                amp = 2 * np.sqrt(snr) / torch.abs(noise_images + 1e-10).max()
-                #make sure the expected value does not change
-                mean_before = noise_images.mean()
-                noise_images = (noise_images - mean_before) * amp
-                noise_images += mean_before
+            snr = 10 ** np.random.uniform(-2, 4)
+            amp = 2 * np.sqrt(snr) / torch.abs(noise_images + 1e-10).max()
+            #make sure the expected value does not change
+            mean_before = noise_images.mean()
+            noise_images = (noise_images - mean_before) * amp
+            noise_images += mean_before
+
             noise2 = np.random.randn(noise_images.shape[0], 1, dasChanelsTrain, nt + 2*100)
             noise2 = torch.from_numpy(bandpass(noise2, 1.0, 10.0, sampling, 100).copy()).to(device).type(torch.float32)
             noise_images2 = noise_images + noise2
@@ -322,8 +329,8 @@ def train(model, device, dataLoader, optimizer, scheduler, mode, writer, epoch, 
             loss.backward()
             optimizer.step()
             #scheduler.step()
-
-            writer.add_scalar('Learning Rate N2N DAS', scheduler.get_last_lr()[0], global_step=epoch * len(dataLoader) + batch_idx)
+            if scheduler:
+                writer.add_scalar('Learning Rate N2N DAS', scheduler.get_last_lr()[0], global_step=epoch * len(dataLoader) + batch_idx)
         else:
             with torch.no_grad():
                 model.eval()
@@ -387,10 +394,12 @@ def main(argv=[]):
     if torch.cuda.device_count() == 1:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
-        device = "cuda:1"
+        device = "cuda:2"
     
     strain_train_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
     strain_test_dir = "data/DAS/SIS-rotated_test_50Hz.npy"
+    #strain_train_dir = "D:/DAS/data/DAS/SIS-rotated_train_50Hz.npy"
+    #strain_test_dir = "D:/DAS/data/DAS/SIS-rotated_test_50Hz.npy"
 
     eq_strain_rates_test, dataset, dataset_validate, dataset_test, test_real_data, real_dataset, real_dataset_val, real_dataset_test = load_data(strain_train_dir, strain_test_dir)
 
@@ -404,7 +413,7 @@ def main(argv=[]):
     else:
         store_path_root = log_files()
 
-    masking_methodes = ['diffrent_noise', 'noise_on_noise', 'noise_on_noise_snr', 'diffrent_noise original shape']#
+    masking_methodes = ['diffrent_noise', 'noise_on_noise', 'only real', 'smal_net']#
 
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
@@ -430,7 +439,7 @@ def main(argv=[]):
 
         print(f"n2noise {i}")
 
-        if 'original shape' in mask_methode:
+        if 'small' in mask_methode:
             batchsize = 24
             dasChanelsTrain = 96
             dasChanelsVal = 96
@@ -444,10 +453,14 @@ def main(argv=[]):
 
         #model = U_Net(1, first_out_chanel=24, scaling_kernel_size=(1,2), conv_kernel=5, batchNorm=batchnorm).to(device)
         model = U_Net(1, first_out_chanel=4, scaling_kernel_size=(1,4), conv_kernel=(3,5), batchNorm=batchnorm, n2self_architecture=False).to(device)
-        
+        if 'small' in mask_methode:
+            model = n2nU_net().to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_lr)
-
+        print(f"{optimizer.param_groups[0]['lr']}")
+        #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_lr)
+        scheduler = get_scheduler(optimizer, epochs)
+        #scheduler = None
+        print(f"{optimizer.param_groups[0]['lr']} - {scheduler.get_last_lr()[0]}")
         writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
         
         last_loss = [[-1,-1],[-1,-1],[-1,-1]] #lower = better
@@ -458,8 +471,14 @@ def main(argv=[]):
         best_cc = [[-1,-1],[-1,-1],[-1,-1]]
 
         for epoch in tqdm(range(epochs)):
+            if 'real' in mask_methode:
+                loss = [-1]
+                last_loss[1][0] = [-1]
+                last_loss[2][0] = [-1]
+                break
             #break
             loss, psnr, scaledVariance_log, lsd_log, coherence_log = train(model, device, dataLoader, optimizer, scheduler, mode="train", writer=writer, epoch=epoch, mask_methode=mask_methode)
+            print(f"{optimizer.param_groups[0]['lr']} - {scheduler.get_last_lr()[0]}")
             scheduler.step()
             #break
             writer.add_scalar('Loss Train', statistics.mean(loss), epoch)
@@ -529,6 +548,10 @@ def main(argv=[]):
         #-------------real data----------------
         #"""
         print("real data")
+        optimizer.param_groups[0]['lr'] = lr
+        # Beispiel für den zweiten Trainingslauf (100 Epochen)
+        scheduler = get_scheduler(optimizer, realEpochs)
+
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         dataLoader = DataLoader(real_dataset, batch_size=batchsize, shuffle=True)
         dataLoader_validate = DataLoader(real_dataset_val, batch_size=batchsize, shuffle=False)

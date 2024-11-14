@@ -532,7 +532,7 @@ def main(argv=[]):
     if torch.cuda.device_count() == 1:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
-        device = "cuda:1"
+        device = "cuda:2"
     
     strain_train_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
     strain_test_dir = "data/DAS/SIS-rotated_train_50Hz.npy"
@@ -550,7 +550,7 @@ def main(argv=[]):
         store_path_root = log_files()
     global modi
     global sigma_n
-    masking_methodes=['channel_1_zero batchnorm', 'channel_1_random batchnorm', 'pixel random batchnorm fancy_1_13', 'pixel batchnorm fancy_1_13']#, 'channel_1_zero batchnorm', 'channel_1_random batchnorm']#, 'channel_1_zero', 'channel_1_random'] #pixel batchnorm fancy_1_13
+    masking_methodes=['channel_1_zero batchnorm']#, 'channel_1_random batchnorm', 'pixel random batchnorm fancy_1_13', 'pixel batchnorm fancy_1_13']#, 'channel_1_zero batchnorm', 'channel_1_random batchnorm']#, 'channel_1_zero', 'channel_1_random'] #pixel batchnorm fancy_1_13
     end_results = pd.DataFrame(columns=pd.MultiIndex.from_product([masking_methodes, 
                                                                    ['train syn', 'val syn', 'test syn', 'train real', 'val real', 'test real']]))
     csv_file = os.path.join(store_path_root, 'best_results.csv')
@@ -592,10 +592,10 @@ def main(argv=[]):
         writer = SummaryWriter(log_dir=os.path.join(store_path, "tensorboard"))
 
         for epoch in tqdm(range(epochs)):
-            if 'channel_1_zero batchnorm' in mask_methode:
-                model.load_state_dict(torch.load("das-solo/models/n2info_part1_channel_zero.pth", map_location=device))
+            #if 'channel_1_zero batchnorm' in mask_methode:
+                #model.load_state_dict(torch.load("das-solo/models/n2info_part1_channel_zero.pth", map_location=device))
                 #model.load_state_dict(torch.load("das-solo/models/transfer41-n2self_pixel jinv_real_part7.pth", map_location=device))
-                break
+                #break
             #break
             #with torch.no_grad():
                 #save_example_wave(picture_DAS_syn, model, device, writer, epoch, mask_methode=mask_methode)
