@@ -1,5 +1,8 @@
 # DAS-denoiser-MA
 
+image.main.py ist für die Ausführung der Methoden auf celebA.
+in das-solo/ finden sich die einzelnen Methoden um DAS Daten auszuwerten
+
 - Noise2Noise
     - original      check
     - für DAS       check
