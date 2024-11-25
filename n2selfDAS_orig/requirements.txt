@@ -1,9 +1,0 @@
-bm3d
-cartopy==0.18.0
-h5py
-matplotlib==3.3.2
-numpy==1.19.2
-obspy==1.2.2
-scikit-image=0.18.1
-scipy==1.5.2
-tensorflow-gpu==2.2.0
